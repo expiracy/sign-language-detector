@@ -5,20 +5,17 @@ clc; clear; close all;
 parallel.gpu.enableCUDAForwardCompatibility(true);
 
 %% SECTION 1: Targeted Data Loading
-fprintf('<strong>[Step 1] Initializing Data Loading...</strong>\n');
+fprintf('[Step 1] Initializing Data Loading...\n');
 
-% Define the specific path
 datasetPath = fullfile(pwd, 'DataSets'); 
 
 if ~exist(datasetPath, 'dir')
     fprintf('   > Warning: "DataSets" folder not found at: %s\n', datasetPath);
-    fprintf('   > Scanning current directory instead...\n');
     datasetPath = pwd; 
 else
     fprintf('   > Target folder found: %s\n', datasetPath);
 end
 
-% Create the ImageDatastore
 fprintf('   > Scanning for images...\n');
 imds = imageDatastore(datasetPath, ...
     'IncludeSubfolders', true, ...
@@ -27,76 +24,99 @@ imds = imageDatastore(datasetPath, ...
 fprintf('   > Total images found: %d\n', length(imds.Files));
 
 %% SECTION 2: Filter & Split Data (STRICT A-Z ONLY)
-fprintf('\n<strong>[Step 2] Filtering Data (A-Z Only)...</strong>\n');
+fprintf('\n[Step 2] Filtering Data (A-Z Only)...\n');
 
-% Count images per class
 labelCounts = countEachLabel(imds);
 allLabels = labelCounts.Label;
 
-% RULE 1: Must have enough data (> 50 images)
 hasEnoughData = labelCounts.Count > 50;
-
-% RULE 2: STRICT FILTER for Single Letters A-Z
-% We use Regular Expressions to check if the folder name is exactly one letter A-Z.
 isLetterAZ = arrayfun(@(x) ~isempty(regexp(char(x), '^[A-Z]$', 'once')), allLabels);
-
-% Combine rules
 validLabels = allLabels(hasEnoughData & isLetterAZ);
 
-% Display what is being removed for debugging
 removedLabels = allLabels(~(hasEnoughData & isLetterAZ));
 if ~isempty(removedLabels)
-    fprintf('   > REMOVING the following non-alphabet classes:\n');
+    fprintf('   > Removing non-alphabet classes:\n');
     disp(removedLabels');
 end
 
 fprintf('   > Keeping ONLY A-Z classes. (Valid Classes: %d)\n', length(validLabels));
 
-% Update the datastore to include ONLY the valid files
 filesToKeep = ismember(imds.Labels, validLabels);
 imds = subset(imds, filesToKeep);
-
-
 imds.Labels = removecats(imds.Labels);
 
-% SPLIT: 80% for Training, 20% for Validation
 [imdsTrain, imdsValidation] = splitEachLabel(imds, 0.8, 'randomized');
-fprintf('   > Data Split Completed:\n');
-fprintf('     - Training Images:   %d\n', length(imdsTrain.Files));
-fprintf('     - Validation Images: %d\n', length(imdsValidation.Files));
+fprintf('   > Training Images:   %d\n', length(imdsTrain.Files));
+fprintf('   > Validation Images: %d\n', length(imdsValidation.Files));
 
-%% SECTION 3: Load Pre-trained Network (GoogLeNet)
-fprintf('\n<strong>[Step 3] Loading GoogLeNet Architecture...</strong>\n');
+%% SECTION 3: Preview Original vs Preprocessed
+fprintf('\n[Step 3] Displaying Original vs Preprocessed Samples...\n');
+
+numSamples = 10;
+sampleIndices = randperm(length(imdsTrain.Files), numSamples);
+
+figure('Name', 'Original vs Preprocessed', 'Position', [50 50 1500 600]);
+for i = 1:numSamples
+    % Read original image
+    originalImg = imread(imdsTrain.Files{sampleIndices(i)});
+    originalImg = im2double(originalImg);
+    if size(originalImg, 3) == 1
+        originalImg = repmat(originalImg, [1 1 3]);
+    end
+    
+    % Get preprocessed image
+    processedImg = readAndPreprocess(imdsTrain.Files{sampleIndices(i)});
+    
+    label = imdsTrain.Labels(sampleIndices(i));
+    
+    % Original on top row
+    subplot(2, numSamples, i);
+    imshow(originalImg);
+    title(sprintf('%s (Original)', char(label)));
+    
+    % Preprocessed on bottom row
+    subplot(2, numSamples, i + numSamples);
+    imshow(processedImg);
+    title('Processed');
+end
+sgtitle('Original vs Preprocessed Training Samples');
+
+fprintf('   > Displaying %d random samples. Close figure to continue.\n', numSamples);
+uiwait(gcf);
+
+%% SECTION 4: Apply Preprocessing via ReadFcn
+fprintf('\n[Step 4] Configuring Preprocessing...\n');
+
+imdsTrain.ReadFcn = @readAndPreprocess;
+imdsValidation.ReadFcn = @readAndPreprocess;
+
+fprintf('   > Preprocessing pipeline attached.\n');
+
+%% SECTION 5: Load Pre-trained Network (GoogLeNet)
+fprintf('\n[Step 5] Loading GoogLeNet Architecture...\n');
 try
     net = googlenet;
     fprintf('   > GoogLeNet loaded successfully.\n');
 catch
-    error('CRITICAL ERROR: GoogLeNet not found. Please install "Deep Learning Toolbox Model for GoogLeNet Network".');
+    error('GoogLeNet not found. Install "Deep Learning Toolbox Model for GoogLeNet Network".');
 end
 
 lgraph = layerGraph(net);
-inputSize = net.Layers(1).InputSize; % Usually 224x224x3
+inputSize = net.Layers(1).InputSize;
 
-%% SECTION 4: Modify Network Layers
-fprintf('\n<strong>[Step 4] Modifying Network Layers...</strong>\n');
+%% SECTION 6: Modify Network Layers
+fprintf('\n[Step 6] Modifying Network Layers...\n');
 
-% Now this will correctly return 26
 numClasses = numel(categories(imdsTrain.Labels));
-fprintf('   > Target Classes for ASL: %d (Must be 26)\n', numClasses);
+fprintf('   > Target Classes for ASL: %d\n', numClasses);
 
 if numClasses ~= 26
-    warning('Warning: You have %d classes, but ASL A-Z requires 26. Check your folders.', numClasses);
+    warning('You have %d classes, but ASL A-Z requires 26.', numClasses);
 end
 
-if numClasses < 2
-    error('CRITICAL ERROR: Found fewer than 2 classes.');
-end
-
-% REMOVAL: Remove the old classification head
 layersToRemove = {'loss3-classifier', 'prob', 'output'};
 lgraph = removeLayers(lgraph, layersToRemove);
 
-% ADDITION: Create new head for 26 classes
 newLayers = [
     fullyConnectedLayer(numClasses, ...
         'Name', 'new_fc', ...
@@ -105,13 +125,13 @@ newLayers = [
     softmaxLayer('Name', 'softmax')
     classificationLayer('Name', 'classoutput')];
 
-% CONNECT
 lgraph = addLayers(lgraph, newLayers);
 lgraph = connectLayers(lgraph, 'pool5-drop_7x7_s1', 'new_fc');
-fprintf('   > New layers attached. Network graph is valid.\n');
+fprintf('   > Network graph modified.\n');
 
-%% SECTION 5: Data Augmentation
-fprintf('\n<strong>[Step 5] Configuring Data Augmentation...</strong>\n');
+%% SECTION 7: Data Augmentation
+fprintf('\n[Step 7] Configuring Data Augmentation...\n');
+
 augmenter = imageDataAugmenter( ...
     'RandXTranslation', [-30 30], ...  
     'RandYTranslation', [-30 30], ...  
@@ -121,12 +141,12 @@ augmenter = imageDataAugmenter( ...
 auimdsTrain = augmentedImageDatastore(inputSize(1:2), imdsTrain, ...
     'DataAugmentation', augmenter);
 auimdsValidation = augmentedImageDatastore(inputSize(1:2), imdsValidation);
+
 fprintf('   > Augmentation ready.\n');
 
-%% SECTION 6: Training Options
-fprintf('\n<strong>[Step 6] Setting Training Options...</strong>\n');
+%% SECTION 8: Training Options
+fprintf('\n[Step 8] Setting Training Options...\n');
 
-% 'Plots', 'training-progress' opens the external window with the progress bar.
 options = trainingOptions('sgdm', ...
     'MiniBatchSize', 32, ...           
     'MaxEpochs', 6, ...                
@@ -137,32 +157,60 @@ options = trainingOptions('sgdm', ...
     'Verbose', false, ...              
     'Plots', 'training-progress');     
 
-fprintf('   > Options set. Visual Progress Window will launch shortly.\n');
+fprintf('   > Options set.\n');
 
-%% SECTION 7: Training Execution
-fprintf('\n<strong>[Step 7] Starting Training...</strong>\n');
-fprintf('   > ------------------------------------------------------------\n');
-fprintf('   > NOTE: A separate window will open to show the Progress Bar.\n');
-fprintf('   > Look at the top-right of that window for "Estimated Time".\n');
-fprintf('   > The Command Window will remain paused until training finishes.\n');
-fprintf('   > ------------------------------------------------------------\n');
+%% SECTION 9: Training Execution
+fprintf('\n[Step 9] Starting Training...\n');
 
-trainingTimer = tic; % Start timer
+trainingTimer = tic;
 
 try
     trainedNet = trainNetwork(auimdsTrain, lgraph, options);
 catch ME
-    fprintf(2, '\nERROR DURING TRAINING: %s\n', ME.message);
+    fprintf(2, '\nERROR: %s\n', ME.message);
     rethrow(ME);
 end
 
-trainingTime = toc(trainingTimer); % Stop timer
+trainingTime = toc(trainingTimer);
 fprintf('\n   > Training Complete in %.2f minutes.\n', trainingTime/60);
 
-%% SECTION 8: Save Result
-fprintf('\n<strong>[Step 8] Saving Model...</strong>\n');
+%% SECTION 10: Save Result
+fprintf('\n[Step 10] Saving Model...\n');
 saveFilename = 'ASL_Trained_Network.mat';
 save(saveFilename, 'trainedNet');
 
 fprintf('   > Network saved to: %s\n', fullfile(pwd, saveFilename));
-fprintf('<strong>=== SUCCESS: Script Finished ===</strong>\n');
+fprintf('=== SUCCESS ===\n');
+
+%% ========== PREPROCESSING FUNCTIONS ==========
+function img = readAndPreprocess(filename)
+    img = imread(filename);
+    img = im2double(img);
+    
+    if size(img, 3) == 4
+        img = img(:,:,1:3);
+    end
+    if size(img, 3) == 1
+        img = repmat(img, [1 1 3]);
+    end
+    
+    img = preprocessingPipeline(img);
+end
+
+function img = preprocessingPipeline(img)
+    img = im2double(img);
+    
+    img = imflatfield(img, 5);
+    
+    if size(img, 3) == 3
+        lab = rgb2lab(img);
+        lab(:,:,1) = adapthisteq(lab(:,:,1) / 100, 'ClipLimit', 0.003) * 100;
+        img = lab2rgb(lab);
+        img = max(0, min(1, img));
+    else
+        img = adapthisteq(img, 'ClipLimit', 0.003);
+    end
+    
+    img = imsharpen(img, 'Radius', 0.5, 'Amount', 0.5, 'Threshold', 0.3);
+    img = im2uint8(img);
+end
