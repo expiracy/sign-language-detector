@@ -1,5 +1,3 @@
-% Train_ASL_Model_ResNet.m
-% Training script with comprehensive data augmentation using ResNet-18
 clc; clear; close all;
 
 parallel.gpu.enableCUDAForwardCompatibility(true);
@@ -7,7 +5,7 @@ parallel.gpu.enableCUDAForwardCompatibility(true);
 %% SECTION 1: Data Loading
 fprintf('[Step 1] Loading Data...\n');
 
-datasetPath = fullfile(pwd, '../data/');
+datasetPath = fullfile(pwd, 'data/');
 if ~exist(datasetPath, 'dir')
     datasetPath = pwd;
 end

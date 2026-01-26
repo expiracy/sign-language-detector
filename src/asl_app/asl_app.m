@@ -440,7 +440,7 @@ classdef asl_app < matlab.apps.AppBase
         % =========================
         % CONSTRUCTOR
         % =========================
-        function app = ASL_App
+        function app = asl_app
             createComponents(app)
             registerApp(app, app.UIFigure)
             runStartupFcn(app, @startupFcn)

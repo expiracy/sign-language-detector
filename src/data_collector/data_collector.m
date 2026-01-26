@@ -291,7 +291,7 @@ classdef data_collector < matlab.apps.AppBase
 
     % App Creation and Deletion
     methods (Access = public)
-        function app = ASL_Collector_v5
+        function app = data_collector
             createComponents(app)
             registerApp(app, app.UIFigure)
             app.CurrentCount = 0;
