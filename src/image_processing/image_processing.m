@@ -95,9 +95,19 @@ for i = 1:totalImages
         continue;
     end
     
-    firstChar = upper(baseName(1));
-    if firstChar < 'A' || firstChar > 'Z'
-        fprintf('   > Skipping (invalid label): %s\n', imageFiles(i).name);
+    % Extract the immediate parent folder name
+    [~, parentFolder] = fileparts(imageFiles(i).folder);
+    
+    % Validate that the parent folder is a single letter A-Z
+    if length(parentFolder) ~= 1
+        fprintf('   > Skipping (invalid subfolder): %s\n', filePath);
+        skippedCount = skippedCount + 1;
+        continue;
+    end
+    
+    labelChar = upper(parentFolder);
+    if labelChar < 'A' || labelChar > 'Z'
+        fprintf('   > Skipping (invalid label folder): %s\n', filePath);
         skippedCount = skippedCount + 1;
         continue;
     end
@@ -105,7 +115,7 @@ for i = 1:totalImages
     try
         img = imread(filePath);
         processedImg = preprocessImage(img);
-        outputPath = fullfile(outputFolder, firstChar, [baseName, ext]);
+        outputPath = fullfile(outputFolder, labelChar, [baseName, ext]);
         imwrite(processedImg, outputPath);
         processedCount = processedCount + 1;
         
@@ -117,7 +127,6 @@ for i = 1:totalImages
         skippedCount = skippedCount + 1;
     end
 end
-
 %% Summary
 fprintf('\n[Step 5] Complete.\n');
 fprintf('   > Images processed: %d\n', processedCount);
