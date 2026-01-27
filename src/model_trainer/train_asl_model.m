@@ -4,10 +4,22 @@ clc; clear; close all;
 
 parallel.gpu.enableCUDAForwardCompatibility(true);
 
-%% SECTION 1: Targeted Data Loading
-fprintf('[Step 1] Initializing Data Loading...\n');
+%% SECTION 1: Create Output Directory
+fprintf('[Step 1] Creating Output Directory...\n');
 
-datasetPath = fullfile(pwd, 'DataSets'); 
+timestamp = datestr(now, 'yyyy-mm-dd_HH-MM-SS');
+outputDir = fullfile(pwd, 'outputs', timestamp);
+
+if ~exist(outputDir, 'dir')
+    mkdir(outputDir);
+end
+
+fprintf('   > Output directory: %s\n', outputDir);
+
+%% SECTION 2: Targeted Data Loading
+fprintf('\n[Step 2] Initializing Data Loading...\n');
+
+datasetPath = fullfile(pwd, 'data', 'preprocessed'); 
 
 if ~exist(datasetPath, 'dir')
     fprintf('   > Warning: "DataSets" folder not found at: %s\n', datasetPath);
@@ -23,8 +35,8 @@ imds = imageDatastore(datasetPath, ...
 
 fprintf('   > Total images found: %d\n', length(imds.Files));
 
-%% SECTION 2: Filter & Split Data (STRICT A-Z ONLY)
-fprintf('\n[Step 2] Filtering Data (A-Z Only)...\n');
+%% SECTION 3: Filter & Split Data (STRICT A-Z ONLY)
+fprintf('\n[Step 3] Filtering Data (A-Z Only)...\n');
 
 labelCounts = countEachLabel(imds);
 allLabels = labelCounts.Label;
@@ -49,48 +61,37 @@ imds.Labels = removecats(imds.Labels);
 fprintf('   > Training Images:   %d\n', length(imdsTrain.Files));
 fprintf('   > Validation Images: %d\n', length(imdsValidation.Files));
 
-%% SECTION 3: Preview Original vs Preprocessed
-fprintf('\n[Step 3] Displaying Original vs Preprocessed Samples...\n');
+%% SECTION 4: Preview Sample Images
+fprintf('\n[Step 4] Displaying Sample Images...\n');
 
-numSamples = 10;
+numSamples = 100;
+gridRows = 10;
+gridCols = 10;
+
+numSamples = min(numSamples, length(imdsTrain.Files));
 sampleIndices = randperm(length(imdsTrain.Files), numSamples);
 
-figure('Name', 'Original vs Preprocessed', 'Position', [50 50 1500 600]);
+fig = figure('Name', 'Training Samples', 'Position', [50 50 1200 1000]);
 for i = 1:numSamples
-    % Read original image
-    originalImg = imread(imdsTrain.Files{sampleIndices(i)});
-    originalImg = im2double(originalImg);
-    if size(originalImg, 3) == 1
-        originalImg = repmat(originalImg, [1 1 3]);
+    img = imread(imdsTrain.Files{sampleIndices(i)});
+    img = im2double(img);
+    if size(img, 3) == 1
+        img = repmat(img, [1 1 3]);
     end
     
-    % Get preprocessed image
-    processedImg = readAndPreprocess(imdsTrain.Files{sampleIndices(i)});
-    
-    label = imdsTrain.Labels(sampleIndices(i));
-    
-    % Original on top row
-    subplot(2, numSamples, i);
-    imshow(originalImg);
-    title(sprintf('%s (Original)', char(label)));
-    
-    % Preprocessed on bottom row
-    subplot(2, numSamples, i + numSamples);
-    imshow(processedImg);
-    title('Processed');
+    subplot(gridRows, gridCols, i);
+    imshow(img);
+    title(char(imdsTrain.Labels(sampleIndices(i))), 'FontSize', 7);
 end
-sgtitle('Original vs Preprocessed Training Samples');
+sgtitle('Training Samples');
 
-fprintf('   > Displaying %d random samples. Close figure to continue.\n', numSamples);
-uiwait(gcf);
+% Save the training samples figure
+saveas(fig, fullfile(outputDir, 'training_samples.png'));
+fprintf('   > Training samples saved to: %s\n', fullfile(outputDir, 'training_samples.png'));
 
-%% SECTION 4: Apply Preprocessing via ReadFcn
-fprintf('\n[Step 4] Configuring Preprocessing...\n');
-
-imdsTrain.ReadFcn = @readAndPreprocess;
-imdsValidation.ReadFcn = @readAndPreprocess;
-
-fprintf('   > Preprocessing pipeline attached.\n');
+fprintf('   > Displaying %d samples.\n', numSamples);
+fprintf('   > Close figure to continue training.\n');
+waitfor(fig);
 
 %% SECTION 5: Load Pre-trained Network (GoogLeNet)
 fprintf('\n[Step 5] Loading GoogLeNet Architecture...\n');
@@ -154,7 +155,7 @@ options = trainingOptions('sgdm', ...
     'Shuffle', 'every-epoch', ...      
     'ValidationData', auimdsValidation, ...
     'ValidationFrequency', 50, ...     
-    'Verbose', false, ...              
+    'Verbose', true, ...              
     'Plots', 'training-progress');     
 
 fprintf('   > Options set.\n');
@@ -174,43 +175,52 @@ end
 trainingTime = toc(trainingTimer);
 fprintf('\n   > Training Complete in %.2f minutes.\n', trainingTime/60);
 
-%% SECTION 10: Save Result
-fprintf('\n[Step 10] Saving Model...\n');
-saveFilename = 'ASL_Trained_Network.mat';
-save(saveFilename, 'trainedNet');
+%% SECTION 10: Generate Confusion Matrix
+fprintf('\n[Step 10] Generating Confusion Matrix...\n');
 
-fprintf('   > Network saved to: %s\n', fullfile(pwd, saveFilename));
-fprintf('=== SUCCESS ===\n');
+% Classify validation images
+YPred = classify(trainedNet, auimdsValidation);
+YTrue = imdsValidation.Labels;
 
-%% ========== PREPROCESSING FUNCTIONS ==========
-function img = readAndPreprocess(filename)
-    img = imread(filename);
-    img = im2double(img);
-    
-    if size(img, 3) == 4
-        img = img(:,:,1:3);
-    end
-    if size(img, 3) == 1
-        img = repmat(img, [1 1 3]);
-    end
-    
-    img = preprocessingPipeline(img);
-end
+% Calculate accuracy
+accuracy = mean(YPred == YTrue);
+fprintf('   > Validation Accuracy: %.2f%%\n', accuracy * 100);
 
-function img = preprocessingPipeline(img)
-    img = im2double(img);
-    
-    img = imflatfield(img, 5);
-    
-    if size(img, 3) == 3
-        lab = rgb2lab(img);
-        lab(:,:,1) = adapthisteq(lab(:,:,1) / 100, 'ClipLimit', 0.003) * 100;
-        img = lab2rgb(lab);
-        img = max(0, min(1, img));
-    else
-        img = adapthisteq(img, 'ClipLimit', 0.003);
-    end
-    
-    img = imsharpen(img, 'Radius', 0.5, 'Amount', 0.5, 'Threshold', 0.3);
-    img = im2uint8(img);
-end
+% Create confusion matrix figure
+confFig = figure('Name', 'Confusion Matrix', 'Position', [100 100 900 800]);
+confMat = confusionmat(YTrue, YPred);
+confusionchart(confMat, categories(YTrue), ...
+    'Title', sprintf('Confusion Matrix (Accuracy: %.2f%%)', accuracy * 100), ...
+    'RowSummary', 'row-normalized', ...
+    'ColumnSummary', 'column-normalized');
+
+% Save confusion matrix figure
+saveas(confFig, fullfile(outputDir, 'confusion_matrix.png'));
+fprintf('   > Confusion matrix saved to: %s\n', fullfile(outputDir, 'confusion_matrix.png'));
+
+% Save confusion matrix data
+save(fullfile(outputDir, 'confusion_matrix_data.mat'), 'confMat', 'YPred', 'YTrue', 'accuracy');
+fprintf('   > Confusion matrix data saved to: %s\n', fullfile(outputDir, 'confusion_matrix_data.mat'));
+
+%% SECTION 11: Save Model and Training Info
+fprintf('\n[Step 11] Saving Model...\n');
+
+% Save the trained network
+modelFilename = fullfile(outputDir, 'ASL_Trained_Network.mat');
+save(modelFilename, 'trainedNet');
+fprintf('   > Network saved to: %s\n', modelFilename);
+
+% Save training information
+trainingInfo.timestamp = timestamp;
+trainingInfo.trainingTime = trainingTime;
+trainingInfo.accuracy = accuracy;
+trainingInfo.numTrainingImages = length(imdsTrain.Files);
+trainingInfo.numValidationImages = length(imdsValidation.Files);
+trainingInfo.numClasses = numClasses;
+trainingInfo.classNames = categories(imdsTrain.Labels);
+
+save(fullfile(outputDir, 'training_info.mat'), 'trainingInfo');
+fprintf('   > Training info saved to: %s\n', fullfile(outputDir, 'training_info.mat'));
+
+fprintf('\n=== SUCCESS ===\n');
+fprintf('All outputs saved to: %s\n', outputDir);
