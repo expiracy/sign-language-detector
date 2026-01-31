@@ -188,8 +188,8 @@ classdef asl_app < matlab.apps.AppBase
 
             % Logic constants
             PREDICTION_INTERVAL = 1.0;
-            MIN_CONFIDENCE = 0.40;
-            MIN_SCORE_DIFF = 0.10;
+            MIN_CONFIDENCE = 0.6;
+            MIN_SCORE_DIFF = 0.20;
 
             defaultPanelColor = app.CamPanel.BackgroundColor;
 
