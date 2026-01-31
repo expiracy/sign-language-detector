@@ -126,7 +126,7 @@ classdef data_collector < matlab.apps.AppBase
             % --- FOLDER CONSTRUCTION ---
             
             % Root: ASL_DATA_NAME / LETTER
-            rootFolder = fullfile(pwd, ['data/datasets/ASL_DATA_', userName]);
+            rootFolder = fullfile(pwd, ['data/datasets_v2/ASL_DATA_', userName]);
             savePath = fullfile(rootFolder, targetChar);
             
             if ~exist(savePath, 'dir')

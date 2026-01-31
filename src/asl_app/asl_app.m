@@ -24,6 +24,8 @@ classdef asl_app < matlab.apps.AppBase
         CurrentCharLabel matlab.ui.control.Label
         ConfGauge        matlab.ui.control.LinearGauge
         GaugeLabel       matlab.ui.control.Label
+        Top5Label        matlab.ui.control.Label
+        Top5List         matlab.ui.control.Label
         StatusLabel      matlab.ui.control.Label
         StopButton       matlab.ui.control.Button
     end
@@ -37,9 +39,14 @@ classdef asl_app < matlab.apps.AppBase
 
         % Properties for "Lock-in" logic
         SentenceText    string  % Accumulates the formed sentence
-        LastStableChar  char    % The character currently being tracked
-        StableStartTime uint64  % Timer for stability check (tic handle)
-        LastLockInTime  uint64  % Timer for the 1s cooldown after a guess (tic handle)
+        LastLockedChar  char    % The last character that was locked in
+
+        % Prediction timing
+        LastPredictionTime  uint64  % Timer for prediction interval
+        LastPredictedChar   char    % Cached prediction result
+        LastPredictedScore  double  % Cached confidence score
+        LastScores          double  % Cached full scores array
+        LastScoreDiff       double  % Difference between top two predictions
     end
 
     methods (Access = private)
@@ -52,18 +59,23 @@ classdef asl_app < matlab.apps.AppBase
             title(app.ImageAxes, 'Starting camera...');
             drawnow;
 
-            % 1. Initialise state variables
+            % Initialise state variables
             app.SentenceText = "";
-            app.LastStableChar = '';
-            app.StableStartTime = tic;
-            app.LastLockInTime = tic - 2; % 2 seconds in the past
+            app.LastLockedChar = '';
 
-            % 2. Do not load a fixed network file anymore
+            % Initialise prediction timing
+            app.LastPredictionTime = tic;
+            app.LastPredictedChar = '-';
+            app.LastPredictedScore = 0;
+            app.LastScores = [];
+            app.LastScoreDiff = 0;
+
+            % Do not load a fixed network file anymore
             app.Net = [];
             app.NetInputSize = [];
             app.NetDisplayName = "";
 
-            % 3. Start camera
+            % Start camera
             try
                 app.Cam = webcam;
             catch
@@ -75,7 +87,7 @@ classdef asl_app < matlab.apps.AppBase
             app.StatusLabel.Text = 'Camera ready. Load a network to start recognition.';
             app.IsRunning = true;
 
-            % 4. Start loop
+            % Start loop
             app.recognitionLoop();
         end
 
@@ -94,7 +106,6 @@ classdef asl_app < matlab.apps.AppBase
                 data = load(fullPath);
                 [net, ~] = app.findNetworkInLoadedStruct(data);
 
-                % Only support SeriesNetwork / DAGNetwork because we use classify(...)
                 if ~(isa(net, 'SeriesNetwork') || isa(net, 'DAGNetwork'))
                     error('Unsupported network type. Save a SeriesNetwork or DAGNetwork.');
                 end
@@ -102,6 +113,10 @@ classdef asl_app < matlab.apps.AppBase
                 app.Net = net;
                 app.NetInputSize = app.getNetInputSize(net);
                 app.NetDisplayName = string(file);
+
+                % Reset state when loading a new network
+                app.LastLockedChar = '';
+                app.LastPredictionTime = tic;
 
                 app.StatusLabel.Text = "Network loaded: " + app.NetDisplayName;
                 title(app.ImageAxes, '');
@@ -144,19 +159,38 @@ classdef asl_app < matlab.apps.AppBase
         end
 
         % =========================
+        % TOP 5 DISPLAY HELPER
+        % =========================
+        function updateTop5Display(app, scores, classNames)
+            [sortedScores, sortIdx] = sort(scores, 'descend');
+            top5Scores = sortedScores(1:min(5, numel(sortedScores)));
+            top5Names = classNames(sortIdx(1:min(5, numel(sortIdx))));
+
+            displayLines = strings(5, 1);
+            for i = 1:numel(top5Scores)
+                pct = top5Scores(i) * 100;
+                displayLines(i) = sprintf('%s  -  %.1f%%', char(top5Names(i)), pct);
+            end
+
+            app.Top5List.Text = strjoin(displayLines, newline);
+        end
+
+        function clearTop5Display(app)
+            app.Top5List.Text = '-';
+        end
+
+        % =========================
         % MAIN LOOP
         % =========================
         function recognitionLoop(app)
 
-            % Increased box size
             targetBoxSize = 450;
 
             % Logic constants
-            CONF_THRESHOLD = 0.80; % 80% confidence required
-            TIME_THRESHOLD = 0.5;  % Must hold for 0.5s
-            COOLDOWN_TIME  = 1.0;  % Pause for 1s after lock-in
+            PREDICTION_INTERVAL = 1.0;
+            MIN_CONFIDENCE = 0.6;
+            MIN_SCORE_DIFF = 0.20;
 
-            % Default panel colour
             defaultPanelColor = app.CamPanel.BackgroundColor;
 
             while app.IsRunning && isvalid(app.UIFigure)
@@ -166,98 +200,103 @@ classdef asl_app < matlab.apps.AppBase
                     img = fliplr(img);
                     [h, w, ~] = size(img);
 
-                    % If no network is loaded, just show the camera feed
+                    boxSize = min([targetBoxSize, h, w]);
+                    x = round((w - boxSize)/2);
+                    if x < 1, x = 1; end
+                    y = round((h - boxSize)/2);
+                    if y < 1, y = 1; end
+                    rect = [x, y, boxSize-1, boxSize-1];
+
+                    % If no network is loaded, show camera feed with guide box
                     if isempty(app.Net) || isempty(app.NetInputSize)
-                        image(app.ImageAxes, img);
-                        app.ImageAxes.XTick = []; app.ImageAxes.YTick = [];
+                        imgDisplay = insertShape(img, 'Rectangle', rect, 'LineWidth', 4, 'Color', 'white');
+                        image(app.ImageAxes, imgDisplay);
+                        app.ImageAxes.XTick = [];
+                        app.ImageAxes.YTick = [];
                         app.CurrentCharLabel.Text = '-';
                         app.ConfGauge.Value = 0;
+                        app.clearTop5Display();
                         app.StatusLabel.Text = 'Load a network from the toolbar to begin.';
                         drawnow limitrate;
                         continue;
                     end
 
-                    % Calculate centre crop
-                    boxSize = min([targetBoxSize, h, w]);
-                    x = round((w - boxSize)/2); if x < 1, x = 1; end
-                    y = round((h - boxSize)/2); if y < 1, y = 1; end
-                    rect = [x, y, boxSize-1, boxSize-1];
+                    % --- B. Classification (only every PREDICTION_INTERVAL seconds) ---
+                    timeSincePrediction = toc(app.LastPredictionTime);
+                    newPrediction = false;
 
-                    % --- B. Cooldown check ---
-                    timeSinceLock = toc(app.LastLockInTime);
+                    if timeSincePrediction >= PREDICTION_INTERVAL
+                        imgHand = imcrop(img, rect);
+                        imgResized = imresize(imgHand, app.NetInputSize);
+                        [labelCat, scores] = classify(app.Net, imgResized);
 
-                    if timeSinceLock < COOLDOWN_TIME
-                        % In cooldown, show green box and skip classification
-                        boxColor = 'green';
+                        % Sort scores to get top two
+                        sortedScores = sort(scores, 'descend');
+                        topScore = sortedScores(1);
+                        secondScore = sortedScores(2);
 
-                        imgDisplay = insertShape(img, 'Rectangle', rect, 'LineWidth', 6, 'Color', boxColor);
-                        image(app.ImageAxes, imgDisplay);
-                        app.ImageAxes.XTick = []; app.ImageAxes.YTick = [];
+                        app.LastPredictedScore = topScore;
+                        app.LastPredictedChar = char(labelCat);
+                        app.LastScores = scores;
+                        app.LastScoreDiff = topScore - secondScore;
+                        app.LastPredictionTime = tic;
+                        newPrediction = true;
 
-                        if timeSinceLock < 0.3
-                            app.CamPanel.BackgroundColor = [0.6 1 0.6]; % light green
-                        else
-                            app.CamPanel.BackgroundColor = defaultPanelColor;
-                        end
-
-                        drawnow limitrate;
-                        continue;
-                    else
-                        app.CamPanel.BackgroundColor = defaultPanelColor;
+                        % Update top 5 display
+                        classNames = app.Net.Layers(end).Classes;
+                        app.updateTop5Display(scores, classNames);
                     end
 
-                    % --- C. Classification ---
-                    imgHand = imcrop(img, rect);
-                    imgResized = imresize(imgHand, app.NetInputSize);
-                    [labelCat, scores] = classify(app.Net, imgResized);
+                    % Use cached values
+                    maxScore = app.LastPredictedScore;
+                    currentChar = app.LastPredictedChar;
+                    scoreDiff = app.LastScoreDiff;
 
-                    maxScore = max(scores);
-                    currentChar = char(labelCat);
+                    % Check if lock-in conditions are met
+                    meetsThreshold = (maxScore >= MIN_CONFIDENCE) && (scoreDiff >= MIN_SCORE_DIFF);
+                    isDifferentChar = ~strcmp(currentChar, app.LastLockedChar);
+                    canLockIn = meetsThreshold && isDifferentChar;
 
-                    % --- D. Lock-in logic ---
+                    % --- C. Automatic lock-in ---
                     boxColor = 'yellow';
+                    app.CamPanel.BackgroundColor = defaultPanelColor;
 
-                    if maxScore > CONF_THRESHOLD
-                        boxColor = 'cyan';
-
-                        if strcmp(currentChar, app.LastStableChar)
-                            if toc(app.StableStartTime) > TIME_THRESHOLD
-                                % Lock in
-                                app.appendToSentence(currentChar);
-
-                                % Start cooldown
-                                app.LastLockInTime = tic;
-
-                                % Reset stability
-                                app.StableStartTime = tic;
-
-                                boxColor = 'green';
-                                app.StatusLabel.Text = ['Locked: ' currentChar];
-                            end
-                        else
-                            app.LastStableChar = currentChar;
-                            app.StableStartTime = tic;
-                        end
+                    if newPrediction && canLockIn && ~isempty(currentChar) && currentChar ~= '-'
+                        % Automatically lock in the letter
+                        app.appendToSentence(currentChar);
+                        app.LastLockedChar = currentChar;
+                        boxColor = 'green';
+                        app.CamPanel.BackgroundColor = [0.6 1 0.6];
+                        app.StatusLabel.Text = ['Locked: ' currentChar];
                     else
-                        app.LastStableChar = '';
-                        app.StableStartTime = tic;
-                        if maxScore < 0.5
+                        % Update status based on current state
+                        if meetsThreshold && ~isDifferentChar
+                            boxColor = 'cyan';
+                            app.StatusLabel.Text = sprintf('Same as last (%s)', app.LastLockedChar);
+                        elseif meetsThreshold
+                            boxColor = 'cyan';
+                            app.StatusLabel.Text = 'Ready...';
+                        elseif maxScore < MIN_CONFIDENCE
                             boxColor = 'red';
+                            app.StatusLabel.Text = sprintf('Conf: %.0f%% (need 40%%)', maxScore * 100);
+                        else
+                            boxColor = 'yellow';
+                            app.StatusLabel.Text = sprintf('Gap: %.0f%% (need 10%%)', scoreDiff * 100);
                         end
-                        app.StatusLabel.Text = 'Scanning...';
                     end
 
-                    % --- E. Update UI ---
+                    % --- D. Update UI ---
                     imgDisplay = insertShape(img, 'Rectangle', rect, 'LineWidth', 4, 'Color', boxColor);
                     image(app.ImageAxes, imgDisplay);
-                    app.ImageAxes.XTick = []; app.ImageAxes.YTick = [];
+                    app.ImageAxes.XTick = [];
+                    app.ImageAxes.YTick = [];
 
                     app.CurrentCharLabel.Text = currentChar;
 
-                    if maxScore < CONF_THRESHOLD
-                        app.CurrentCharLabel.FontColor = [0.85 0.33 0.1]; % orange
+                    if canLockIn
+                        app.CurrentCharLabel.FontColor = [0 0.5 0];
                     else
-                        app.CurrentCharLabel.FontColor = [0 0.5 0]; % green
+                        app.CurrentCharLabel.FontColor = [0.85 0.33 0.1];
                     end
 
                     app.ConfGauge.Value = maxScore * 100;
@@ -265,8 +304,9 @@ classdef asl_app < matlab.apps.AppBase
                     drawnow limitrate;
 
                 catch err
+                    app.StatusLabel.Text = ['Error: ' err.message];
                     fprintf('Loop Error: %s\n', err.message);
-                    app.IsRunning = false;
+                    pause(0.5);
                 end
             end
         end
@@ -282,11 +322,20 @@ classdef asl_app < matlab.apps.AppBase
         % =========================
         % UI CALLBACKS
         % =========================
-        function SpaceButtonPushed(app, event)
+        function KeyPressed(app, event)
+            switch event.Key
+                case 'space'
+                    app.appendToSentence(" ");
+                case 'backspace'
+                    app.DeleteButtonPushed();
+            end
+        end
+
+        function SpaceButtonPushed(app, ~)
             app.appendToSentence(" ");
         end
 
-        function DeleteButtonPushed(app, event)
+        function DeleteButtonPushed(app, ~)
             currentTxt = char(app.SentenceText);
             if ~isempty(currentTxt)
                 app.SentenceText = string(currentTxt(1:end-1));
@@ -294,7 +343,7 @@ classdef asl_app < matlab.apps.AppBase
             end
         end
 
-        function StopButtonPushed(app, event)
+        function StopButtonPushed(app, ~)
             app.IsRunning = false;
             pause(0.1);
             if ~isempty(app.Cam)
@@ -306,7 +355,7 @@ classdef asl_app < matlab.apps.AppBase
             end
         end
 
-        function UIFigureCloseRequest(app, event)
+        function UIFigureCloseRequest(app, ~)
             app.StopButtonPushed();
         end
     end
@@ -316,17 +365,16 @@ classdef asl_app < matlab.apps.AppBase
         % CREATE COMPONENTS
         % =========================
         function createComponents(app)
-            % Main window style
             app.UIFigure = uifigure('Visible', 'off');
             app.UIFigure.Position = [50 50 1100 650];
             app.UIFigure.Name = 'ASL Pro Translator v3';
             app.UIFigure.Color = [0.92 0.93 0.94];
             app.UIFigure.CloseRequestFcn = createCallbackFcn(app, @UIFigureCloseRequest, true);
+            app.UIFigure.KeyPressFcn = createCallbackFcn(app, @KeyPressed, true);
 
             % === TOOLBAR ===
             app.Toolbar = uitoolbar(app.UIFigure);
 
-            % Simple 16x16 icon (green square)
             icon = zeros(16,16,3);
             icon(:,:,2) = 0.6;
             icon(3:14,3:14,:) = 0.9;
@@ -348,7 +396,6 @@ classdef asl_app < matlab.apps.AppBase
             app.ChartPanel.Position = [col1_x base_y col1_w panel_h];
             app.ChartPanel.BackgroundColor = 'white';
 
-            % Check for image file
             imagePath = 'asl_chart.jpeg';
             if ~exist(imagePath, 'file')
                 imwrite(zeros(300,300,3)+0.9, 'asl_chart_placeholder.jpeg');
@@ -367,7 +414,8 @@ classdef asl_app < matlab.apps.AppBase
 
             app.ImageAxes = uiaxes(app.CamPanel);
             app.ImageAxes.Position = [15 180 450 400];
-            app.ImageAxes.XTick = []; app.ImageAxes.YTick = [];
+            app.ImageAxes.XTick = [];
+            app.ImageAxes.YTick = [];
             app.ImageAxes.Box = 'on';
             app.ImageAxes.BackgroundColor = 'black';
 
@@ -388,7 +436,7 @@ classdef asl_app < matlab.apps.AppBase
 
             app.DeleteButton = uibutton(app.CamPanel, 'push');
             app.DeleteButton.Position = [245 20 220 50];
-            app.DeleteButton.Text = 'DELETE [ <- ]';
+            app.DeleteButton.Text = 'DELETE [ Backspace ]';
             app.DeleteButton.FontSize = 16;
             app.DeleteButton.ButtonPushedFcn = createCallbackFcn(app, @DeleteButtonPushed, true);
 
@@ -398,29 +446,43 @@ classdef asl_app < matlab.apps.AppBase
             app.ResultsPanel.Position = [col3_x base_y col3_w panel_h];
 
             app.CurrentCharLabel = uilabel(app.ResultsPanel);
-            app.CurrentCharLabel.Position = [10 350 200 180];
+            app.CurrentCharLabel.Position = [10 420 200 120];
             app.CurrentCharLabel.Text = '-';
-            app.CurrentCharLabel.FontSize = 120;
+            app.CurrentCharLabel.FontSize = 90;
             app.CurrentCharLabel.FontWeight = 'bold';
             app.CurrentCharLabel.HorizontalAlignment = 'center';
 
             app.ConfGauge = uigauge(app.ResultsPanel, 'linear');
-            app.ConfGauge.Position = [10 300 200 40];
+            app.ConfGauge.Position = [10 380 200 40];
             app.ConfGauge.Limits = [0 100];
             app.ConfGauge.ScaleColors = [0.8 0 0; 1 0.8 0; 0 0.6 0];
-            app.ConfGauge.ScaleColorLimits = [0 60; 60 80; 80 100];
+            app.ConfGauge.ScaleColorLimits = [0 40; 40 70; 70 100];
 
             app.GaugeLabel = uilabel(app.ResultsPanel);
-            app.GaugeLabel.Position = [10 275 200 22];
+            app.GaugeLabel.Position = [10 355 200 22];
             app.GaugeLabel.Text = 'Confidence %';
             app.GaugeLabel.HorizontalAlignment = 'center';
 
+            app.Top5Label = uilabel(app.ResultsPanel);
+            app.Top5Label.Position = [10 310 200 22];
+            app.Top5Label.Text = 'Top 5 Predictions';
+            app.Top5Label.FontWeight = 'bold';
+            app.Top5Label.HorizontalAlignment = 'center';
+
+            app.Top5List = uilabel(app.ResultsPanel);
+            app.Top5List.Position = [10 190 200 120];
+            app.Top5List.Text = '-';
+            app.Top5List.FontSize = 14;
+            app.Top5List.FontName = 'Consolas';
+            app.Top5List.VerticalAlignment = 'top';
+            app.Top5List.BackgroundColor = [0.95 0.95 0.95];
+
             app.StatusLabel = uilabel(app.ResultsPanel);
-            app.StatusLabel.Position = [10 150 200 100];
-            app.StatusLabel.Text = 'Hold sign steady for 0.5s to lock it in.';
+            app.StatusLabel.Position = [10 120 200 60];
+            app.StatusLabel.Text = 'Scanning...';
             app.StatusLabel.HorizontalAlignment = 'center';
             app.StatusLabel.WordWrap = 'on';
-            app.StatusLabel.FontSize = 14;
+            app.StatusLabel.FontSize = 12;
             app.StatusLabel.FontAngle = 'italic';
 
             app.StopButton = uibutton(app.ResultsPanel, 'push');
@@ -448,7 +510,10 @@ classdef asl_app < matlab.apps.AppBase
 
         function delete(app)
             if ~isempty(app.Cam)
-                try, delete(app.Cam); catch, end
+                try
+                    delete(app.Cam);
+                catch
+                end
                 app.Cam = [];
             end
             if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
@@ -457,4 +522,3 @@ classdef asl_app < matlab.apps.AppBase
         end
     end
 end
-
