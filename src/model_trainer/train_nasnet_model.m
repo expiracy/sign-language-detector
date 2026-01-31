@@ -1,37 +1,24 @@
-% Train_ASL_Model_NASNet.m
+% Train_ASL_Model.m
 
 clc; clear; close all;
 
 parallel.gpu.enableCUDAForwardCompatibility(true);
 
-%% SECTION 1: Create Output Directory
-fprintf('[Step 1] Creating Output Directory...\n');
+%% SECTION 1: Targeted Data Loading
+fprintf('<strong>[Step 1] Initializing Data Loading...</strong>\n');
 
-timestamp = datestr(now, 'yyyy-mm-dd_HH-MM-SS');
-outputDir = fullfile(pwd, 'outputs', timestamp);
-
-if ~exist(outputDir, 'dir')
-    mkdir(outputDir);
-end
-
-fprintf('   > Output directory: %s\n', outputDir);
-
-%% SECTION 2: Targeted Data Loading
-fprintf('\n[Step 2] Initializing Data Loading...\n');
-
-datasetPath = fullfile(pwd, 'data', 'datasets'); 
+% Define the specific path
+datasetPath = fullfile(pwd, 'DataSets'); 
 
 if ~exist(datasetPath, 'dir')
-    fprintf('   > Warning: "raw" folder not found, trying "preprocessed"...\n');
-    datasetPath = fullfile(pwd, 'data', 'preprocessed');
-end
-
-if ~exist(datasetPath, 'dir')
-    error('No valid data folder found.');
+    fprintf('   > Warning: "DataSets" folder not found at: %s\n', datasetPath);
+    fprintf('   > Scanning current directory instead...\n');
+    datasetPath = pwd; 
 else
     fprintf('   > Target folder found: %s\n', datasetPath);
 end
 
+% Create the ImageDatastore
 fprintf('   > Scanning for images...\n');
 imds = imageDatastore(datasetPath, ...
     'IncludeSubfolders', true, ...
@@ -39,297 +26,143 @@ imds = imageDatastore(datasetPath, ...
 
 fprintf('   > Total images found: %d\n', length(imds.Files));
 
-%% SECTION 3: Filter & Split Data (STRICT A-Z ONLY)
-fprintf('\n[Step 3] Filtering Data (A-Z Only)...\n');
+%% SECTION 2: Filter & Split Data (STRICT A-Z ONLY)
+fprintf('\n<strong>[Step 2] Filtering Data (A-Z Only)...</strong>\n');
 
+% Count images per class
 labelCounts = countEachLabel(imds);
 allLabels = labelCounts.Label;
 
+% RULE 1: Must have enough data (> 50 images)
 hasEnoughData = labelCounts.Count > 50;
+
+% RULE 2: STRICT FILTER for Single Letters A-Z
+% We use Regular Expressions to check if the folder name is exactly one letter A-Z.
 isLetterAZ = arrayfun(@(x) ~isempty(regexp(char(x), '^[A-Z]$', 'once')), allLabels);
+
+% Combine rules
 validLabels = allLabels(hasEnoughData & isLetterAZ);
 
+% Display what is being removed for debugging
 removedLabels = allLabels(~(hasEnoughData & isLetterAZ));
 if ~isempty(removedLabels)
-    fprintf('   > Removing non-alphabet classes:\n');
+    fprintf('   > REMOVING the following non-alphabet classes:\n');
     disp(removedLabels');
 end
 
 fprintf('   > Keeping ONLY A-Z classes. (Valid Classes: %d)\n', length(validLabels));
 
+% Update the datastore to include ONLY the valid files
 filesToKeep = ismember(imds.Labels, validLabels);
 imds = subset(imds, filesToKeep);
+
+
 imds.Labels = removecats(imds.Labels);
 
+% SPLIT: 80% for Training, 20% for Validation
 [imdsTrain, imdsValidation] = splitEachLabel(imds, 0.8, 'randomized');
-fprintf('   > Training Images:   %d\n', length(imdsTrain.Files));
-fprintf('   > Validation Images: %d\n', length(imdsValidation.Files));
+fprintf('   > Data Split Completed:\n');
+fprintf('     - Training Images:   %d\n', length(imdsTrain.Files));
+fprintf('     - Validation Images: %d\n', length(imdsValidation.Files));
 
-%% SECTION 4: Preview Sample Images
-fprintf('\n[Step 4] Displaying Sample Images...\n');
-
-numSamples = 100;
-gridRows = 10;
-gridCols = 10;
-
-numSamples = min(numSamples, length(imdsTrain.Files));
-sampleIndices = randperm(length(imdsTrain.Files), numSamples);
-
-fig = figure('Name', 'Training Samples', 'Position', [50 50 1200 1000]);
-for i = 1:numSamples
-    img = imread(imdsTrain.Files{sampleIndices(i)});
-    img = im2double(img);
-    if size(img, 3) == 1
-        img = repmat(img, [1 1 3]);
-    end
-    
-    subplot(gridRows, gridCols, i);
-    imshow(img);
-    title(char(imdsTrain.Labels(sampleIndices(i))), 'FontSize', 7);
-end
-sgtitle('Training Samples');
-
-saveas(fig, fullfile(outputDir, 'training_samples.png'));
-fprintf('   > Training samples saved to: %s\n', fullfile(outputDir, 'training_samples.png'));
-
-fprintf('   > Displaying %d samples.\n', numSamples);
-fprintf('   > Close figure to continue training.\n');
-waitfor(fig);
-
-%% SECTION 5: Load Pre-trained Network (NASNet-Large)
-fprintf('\n[Step 5] Loading NASNet-Large Architecture...\n');
+%% SECTION 3: Load Pre-trained Network (GoogLeNet)
+fprintf('\n<strong>[Step 3] Loading GoogLeNet Architecture...</strong>\n');
 try
-    net = nasnetlarge;
-    fprintf('   > NASNet-Large loaded successfully.\n');
+    net = googlenet;
+    fprintf('   > GoogLeNet loaded successfully.\n');
 catch
-    error('NASNet-Large not found. Install "Deep Learning Toolbox Model for NASNet-Large Network".');
+    error('CRITICAL ERROR: GoogLeNet not found. Please install "Deep Learning Toolbox Model for GoogLeNet Network".');
 end
 
 lgraph = layerGraph(net);
-inputSize = net.Layers(1).InputSize;
+inputSize = net.Layers(1).InputSize; % Usually 224x224x3
 
-%% SECTION 6: Modify Network Layers
-fprintf('\n[Step 6] Modifying Network Layers...\n');
+%% SECTION 4: Modify Network Layers
+fprintf('\n<strong>[Step 4] Modifying Network Layers...</strong>\n');
 
+% Now this will correctly return 26
 numClasses = numel(categories(imdsTrain.Labels));
-fprintf('   > Target Classes for ASL: %d\n', numClasses);
+fprintf('   > Target Classes for ASL: %d (Must be 26)\n', numClasses);
 
 if numClasses ~= 26
-    warning('You have %d classes, but ASL A-Z requires 26.', numClasses);
+    warning('Warning: You have %d classes, but ASL A-Z requires 26. Check your folders.', numClasses);
 end
 
-% Remove final layers (NASNet-Large specific)
-layersToRemove = {'predictions', 'predictions_softmax', 'ClassificationLayer_predictions'};
+if numClasses < 2
+    error('CRITICAL ERROR: Found fewer than 2 classes.');
+end
+
+% REMOVAL: Remove the old classification head
+layersToRemove = {'loss3-classifier', 'prob', 'output'};
 lgraph = removeLayers(lgraph, layersToRemove);
 
-% Add new classification layers
+% ADDITION: Create new head for 26 classes
 newLayers = [
-    fullyConnectedLayer(512, 'Name', 'new_fc1', ...
-        'WeightLearnRateFactor', 10, ...
-        'BiasLearnRateFactor', 10)
-    batchNormalizationLayer('Name', 'new_bn')
-    reluLayer('Name', 'new_relu')
-    dropoutLayer(0.5, 'Name', 'new_dropout')
-    fullyConnectedLayer(numClasses, 'Name', 'new_fc2', ...
+    fullyConnectedLayer(numClasses, ...
+        'Name', 'new_fc', ...
         'WeightLearnRateFactor', 10, ...
         'BiasLearnRateFactor', 10)
     softmaxLayer('Name', 'softmax')
     classificationLayer('Name', 'classoutput')];
 
+% CONNECT
 lgraph = addLayers(lgraph, newLayers);
+lgraph = connectLayers(lgraph, 'pool5-drop_7x7_s1', 'new_fc');
+fprintf('   > New layers attached. Network graph is valid.\n');
 
-% Connect to NASNet-Large's global average pooling layer
-lgraph = connectLayers(lgraph, 'global_average_pooling2d_2', 'new_fc1');
-fprintf('   > Network graph modified.\n');
-
-%% SECTION 7: Unfreeze Later Layers for Fine-tuning
-fprintf('\n[Step 7] Configuring Layer Freezing...\n');
-
-layers = lgraph.Layers;
-connections = lgraph.Connections;
-
-numLayers = numel(layers);
-freezeThreshold = floor(numLayers * 0.6);
-
-for i = 1:numLayers
-    if isprop(layers(i), 'WeightLearnRateFactor')
-        if i <= freezeThreshold
-            layers(i).WeightLearnRateFactor = 0;
-            layers(i).BiasLearnRateFactor = 0;
-        else
-            layers(i).WeightLearnRateFactor = 1;
-            layers(i).BiasLearnRateFactor = 1;
-        end
-    end
-end
-
-lgraph = layerGraph();
-for i = 1:numel(layers)
-    lgraph = addLayers(lgraph, layers(i));
-end
-for i = 1:size(connections, 1)
-    lgraph = connectLayers(lgraph, connections.Source{i}, connections.Destination{i});
-end
-
-fprintf('   > Frozen first %d layers, unfrozen remaining layers.\n', freezeThreshold);
-
-%% SECTION 8: Data Augmentation
-fprintf('\n[Step 8] Configuring Data Augmentation...\n');
-
+%% SECTION 5: Data Augmentation
+fprintf('\n<strong>[Step 5] Configuring Data Augmentation...</strong>\n');
 augmenter = imageDataAugmenter( ...
-    'RandXTranslation', [-20 20], ...  
-    'RandYTranslation', [-20 20], ...  
-    'RandRotation', [-10 10], ...      
-    'RandScale', [0.85 1.15], ...
-    'RandXReflection', false, ...
-    'RandYReflection', false);
+    'RandXTranslation', [-30 30], ...  
+    'RandYTranslation', [-30 30], ...  
+    'RandRotation', [-15 15], ...      
+    'RandScale', [0.9 1.1]);           
 
 auimdsTrain = augmentedImageDatastore(inputSize(1:2), imdsTrain, ...
-    'DataAugmentation', augmenter, ...
-    'ColorPreprocessing', 'gray2rgb');
-auimdsValidation = augmentedImageDatastore(inputSize(1:2), imdsValidation, ...
-    'ColorPreprocessing', 'gray2rgb');
-
+    'DataAugmentation', augmenter);
+auimdsValidation = augmentedImageDatastore(inputSize(1:2), imdsValidation);
 fprintf('   > Augmentation ready.\n');
 
-%% SECTION 9: Training Options
-fprintf('\n[Step 9] Setting Training Options...\n');
+%% SECTION 6: Training Options
+fprintf('\n<strong>[Step 6] Setting Training Options...</strong>\n');
 
-% NASNet-Large requires more memory; consider reducing batch size if needed
+% 'Plots', 'training-progress' opens the external window with the progress bar.
 options = trainingOptions('sgdm', ...
-    'MiniBatchSize', 8, ...           
-    'MaxEpochs', 25, ...               
-    'InitialLearnRate', 0.001, ...     
-    'LearnRateSchedule', 'piecewise', ...
-    'LearnRateDropFactor', 0.2, ...
-    'LearnRateDropPeriod', 8, ...
-    'L2Regularization', 0.0001, ...
-    'Momentum', 0.9, ...
+    'MiniBatchSize', 32, ...           
+    'MaxEpochs', 6, ...                
+    'InitialLearnRate', 0.0001, ...    
     'Shuffle', 'every-epoch', ...      
     'ValidationData', auimdsValidation, ...
-    'ValidationFrequency', 50, ...
-    'ValidationPatience', 5, ...
-    'Verbose', true, ...              
+    'ValidationFrequency', 50, ...     
+    'Verbose', false, ...              
     'Plots', 'training-progress');     
 
-fprintf('   > Options set.\n');
+fprintf('   > Options set. Visual Progress Window will launch shortly.\n');
 
-%% SECTION 10: Training Execution
-fprintf('\n[Step 10] Starting Training...\n');
+%% SECTION 7: Training Execution
+fprintf('\n<strong>[Step 7] Starting Training...</strong>\n');
+fprintf('   > ------------------------------------------------------------\n');
+fprintf('   > NOTE: A separate window will open to show the Progress Bar.\n');
+fprintf('   > Look at the top-right of that window for "Estimated Time".\n');
+fprintf('   > The Command Window will remain paused until training finishes.\n');
+fprintf('   > ------------------------------------------------------------\n');
 
-trainingTimer = tic;
+trainingTimer = tic; % Start timer
 
 try
     trainedNet = trainNetwork(auimdsTrain, lgraph, options);
 catch ME
-    fprintf(2, '\nERROR: %s\n', ME.message);
+    fprintf(2, '\nERROR DURING TRAINING: %s\n', ME.message);
     rethrow(ME);
 end
 
-trainingTime = toc(trainingTimer);
+trainingTime = toc(trainingTimer); % Stop timer
 fprintf('\n   > Training Complete in %.2f minutes.\n', trainingTime/60);
 
-%% SECTION 11: Generate Confusion Matrix
-fprintf('\n[Step 11] Generating Confusion Matrix...\n');
+%% SECTION 8: Save Result
+fprintf('\n<strong>[Step 8] Saving Model...</strong>\n');
+saveFilename = 'ASL_Trained_Network.mat';
+save(saveFilename, 'trainedNet');
 
-YPred = classify(trainedNet, auimdsValidation);
-YTrue = imdsValidation.Labels;
-
-accuracy = mean(YPred == YTrue);
-fprintf('   > Validation Accuracy: %.2f%%\n', accuracy * 100);
-
-confFig = figure('Name', 'Confusion Matrix', 'Position', [100 100 900 800]);
-confMat = confusionmat(YTrue, YPred);
-confusionchart(confMat, categories(YTrue), ...
-    'Title', sprintf('Confusion Matrix (Accuracy: %.2f%%)', accuracy * 100), ...
-    'RowSummary', 'row-normalized', ...
-    'ColumnSummary', 'column-normalized');
-
-saveas(confFig, fullfile(outputDir, 'confusion_matrix.png'));
-fprintf('   > Confusion matrix saved to: %s\n', fullfile(outputDir, 'confusion_matrix.png'));
-
-save(fullfile(outputDir, 'confusion_matrix_data.mat'), 'confMat', 'YPred', 'YTrue', 'accuracy');
-fprintf('   > Confusion matrix data saved to: %s\n', fullfile(outputDir, 'confusion_matrix_data.mat'));
-
-%% SECTION 12: Per-Class Accuracy Analysis
-fprintf('\n[Step 12] Per-Class Accuracy Analysis...\n');
-
-classNames = categories(YTrue);
-perClassAccuracy = zeros(numel(classNames), 1);
-perClassCount = zeros(numel(classNames), 1);
-
-fprintf('\n   %-8s %-12s %-8s\n', 'Class', 'Accuracy', 'Samples');
-fprintf('   %s\n', repmat('-', 1, 30));
-
-for i = 1:numel(classNames)
-    idx = YTrue == classNames{i};
-    perClassCount(i) = sum(idx);
-    if perClassCount(i) > 0
-        perClassAccuracy(i) = mean(YPred(idx) == YTrue(idx)) * 100;
-    else
-        perClassAccuracy(i) = 0;
-    end
-    fprintf('   %-8s %-12.2f %-8d\n', classNames{i}, perClassAccuracy(i), perClassCount(i));
-end
-
-threshold = 80;
-problematicIdx = perClassAccuracy < threshold;
-if any(problematicIdx)
-    fprintf('\n   > Classes below %.0f%% accuracy:\n', threshold);
-    problematicClasses = classNames(problematicIdx);
-    for i = 1:numel(problematicClasses)
-        fprintf('      - %s (%.2f%%)\n', problematicClasses{i}, perClassAccuracy(strcmp(classNames, problematicClasses{i})));
-    end
-end
-
-perClassResults = table(classNames, perClassAccuracy, perClassCount, ...
-    'VariableNames', {'Class', 'Accuracy', 'SampleCount'});
-writetable(perClassResults, fullfile(outputDir, 'per_class_accuracy.csv'));
-fprintf('   > Per-class accuracy saved to: %s\n', fullfile(outputDir, 'per_class_accuracy.csv'));
-
-%% SECTION 13: Confusion Analysis for Similar Letters
-fprintf('\n[Step 13] Analysing Commonly Confused Letters...\n');
-
-confMatNorm = confMat ./ sum(confMat, 2);
-confMatNorm(isnan(confMatNorm)) = 0;
-
-confMatOffDiag = confMatNorm;
-confMatOffDiag(logical(eye(size(confMatOffDiag)))) = 0;
-
-[sortedConfusions, sortIdx] = sort(confMatOffDiag(:), 'descend');
-topN = 10;
-
-fprintf('\n   Top %d Confusions:\n', topN);
-fprintf('   %-8s %-8s %-12s\n', 'True', 'Pred', 'Rate');
-fprintf('   %s\n', repmat('-', 1, 30));
-
-for i = 1:topN
-    if sortedConfusions(i) > 0
-        [row, col] = ind2sub(size(confMatNorm), sortIdx(i));
-        fprintf('   %-8s %-8s %-12.2f%%\n', classNames{row}, classNames{col}, sortedConfusions(i) * 100);
-    end
-end
-
-%% SECTION 14: Save Model and Training Info
-fprintf('\n[Step 14] Saving Model...\n');
-
-modelFilename = fullfile(outputDir, 'ASL_Trained_Network.mat');
-save(modelFilename, 'trainedNet');
-fprintf('   > Network saved to: %s\n', modelFilename);
-
-trainingInfo.timestamp = timestamp;
-trainingInfo.trainingTime = trainingTime;
-trainingInfo.accuracy = accuracy;
-trainingInfo.numTrainingImages = length(imdsTrain.Files);
-trainingInfo.numValidationImages = length(imdsValidation.Files);
-trainingInfo.numClasses = numClasses;
-trainingInfo.classNames = classNames;
-trainingInfo.perClassAccuracy = perClassAccuracy;
-trainingInfo.architecture = 'NASNet-Large';
-trainingInfo.freezeThreshold = freezeThreshold;
-
-save(fullfile(outputDir, 'training_info.mat'), 'trainingInfo');
-fprintf('   > Training info saved to: %s\n', fullfile(outputDir, 'training_info.mat'));
-
-fprintf('\n=== SUCCESS ===\n');
-fprintf('All outputs saved to: %s\n', outputDir);
+fprintf('   > Network saved to: %s\n', fullfile(pwd, saveFilename));
+fprintf('<strong>=== SUCCESS: Script Finished ===</strong>\n');
