@@ -16,7 +16,7 @@ fprintf('   > Output directory created: %s\n', outputDir);
 %% SECTION 2: Targeted Data Loading
 fprintf('\n<strong>[Step 2] Initializing Data Loading...</strong>\n');
 
-datasetPath = fullfile(pwd, 'data/datasets/ASL_DATA_Test/'); 
+datasetPath = fullfile(pwd, 'data/datasets_v2/'); 
 
 if ~exist(datasetPath, 'dir')
     fprintf('   > Warning: "DataSets" folder not found at: %s\n', datasetPath);
