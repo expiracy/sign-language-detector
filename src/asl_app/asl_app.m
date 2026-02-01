@@ -75,9 +75,13 @@ classdef asl_app < matlab.apps.AppBase
             app.NetInputSize = [];
             app.NetDisplayName = "";
 
-            % Start camera
+            % Start camera with timeout configuration
             try
                 app.Cam = webcam;
+                % Increase timeout if the property is supported
+                if isprop(app.Cam, 'Timeout')
+                    app.Cam.Timeout = 10;
+                end
             catch
                 uialert(app.UIFigure, 'No webcam found. Connect one and restart.', 'Camera Error');
                 return;
@@ -89,6 +93,32 @@ classdef asl_app < matlab.apps.AppBase
 
             % Start loop
             app.recognitionLoop();
+        end
+
+        % =========================
+        % CAMERA RECONNECTION
+        % =========================
+        function success = reconnectCamera(app)
+            success = false;
+            try
+                % Release existing camera
+                if ~isempty(app.Cam)
+                    delete(app.Cam);
+                    app.Cam = [];
+                end
+                pause(1.0);
+                
+                % Attempt to reconnect
+                app.Cam = webcam;
+                if isprop(app.Cam, 'Timeout')
+                    app.Cam.Timeout = 10;
+                end
+                
+                app.StatusLabel.Text = 'Camera reconnected.';
+                success = true;
+            catch
+                app.StatusLabel.Text = 'Camera reconnection failed.';
+            end
         end
 
         % =========================
@@ -190,13 +220,49 @@ classdef asl_app < matlab.apps.AppBase
             PREDICTION_INTERVAL = 1.0;
             MIN_CONFIDENCE = 0.6;
             MIN_SCORE_DIFF = 0.20;
+            MAX_CAPTURE_RETRIES = 3;
 
             defaultPanelColor = app.CamPanel.BackgroundColor;
 
             while app.IsRunning && isvalid(app.UIFigure)
                 try
-                    % --- A. Capture ---
-                    img = snapshot(app.Cam);
+                    % --- A. Capture with retry logic ---
+                    img = [];
+                    captureSuccess = false;
+                    
+                    for attempt = 1:MAX_CAPTURE_RETRIES
+                        try
+                            img = snapshot(app.Cam);
+                            captureSuccess = true;
+                            break;
+                        catch
+                            if attempt < MAX_CAPTURE_RETRIES
+                                pause(0.2);
+                            end
+                        end
+                    end
+                    
+                    % If all retries failed, attempt camera reconnection
+                    if ~captureSuccess
+                        app.StatusLabel.Text = 'Camera timeout. Reconnecting...';
+                        drawnow;
+                        
+                        reconnected = app.reconnectCamera();
+                        if ~reconnected
+                            pause(2.0);
+                            continue;
+                        end
+                        
+                        % Try one more capture after reconnection
+                        try
+                            img = snapshot(app.Cam);
+                        catch
+                            app.StatusLabel.Text = 'Capture failed after reconnection.';
+                            pause(1.0);
+                            continue;
+                        end
+                    end
+                    
                     img = fliplr(img);
                     [h, w, ~] = size(img);
 
@@ -278,10 +344,10 @@ classdef asl_app < matlab.apps.AppBase
                             app.StatusLabel.Text = 'Ready...';
                         elseif maxScore < MIN_CONFIDENCE
                             boxColor = 'red';
-                            app.StatusLabel.Text = sprintf('Conf: %.0f%% (need 40%%)', maxScore * 100);
+                            app.StatusLabel.Text = sprintf('Conf: %.0f%% (need 60%%)', maxScore * 100);
                         else
                             boxColor = 'yellow';
-                            app.StatusLabel.Text = sprintf('Gap: %.0f%% (need 10%%)', scoreDiff * 100);
+                            app.StatusLabel.Text = sprintf('Gap: %.0f%% (need 20%%)', scoreDiff * 100);
                         end
                     end
 
@@ -305,7 +371,6 @@ classdef asl_app < matlab.apps.AppBase
 
                 catch err
                     app.StatusLabel.Text = ['Error: ' err.message];
-                    fprintf('Loop Error: %s\n', err.message);
                     pause(0.5);
                 end
             end
