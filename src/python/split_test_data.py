@@ -25,6 +25,7 @@ EXCLUDED_DATASETS = [
     "ASL_DATA_Far",
     "ASL_DATA_Isa",
     "ASL_DATA_Test",
+    "ASL_DATA_Aaron2"
 ]
 
 def main():
