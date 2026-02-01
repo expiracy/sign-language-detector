@@ -18,6 +18,7 @@ classdef asl_app < matlab.apps.AppBase
         SentenceLabel   matlab.ui.control.Label
         SpaceButton     matlab.ui.control.Button
         DeleteButton    matlab.ui.control.Button
+        ImageInputSelectionDropdown matlab.ui.control.DropDown
 
         % --- Right Panel (Results & Controls) ---
         ResultsPanel     matlab.ui.container.Panel
@@ -40,6 +41,9 @@ classdef asl_app < matlab.apps.AppBase
         LastStableChar  char    % The character currently being tracked
         StableStartTime uint64  % Timer for stability check (tic handle)
         LastLockInTime  uint64  % Timer for the 1s cooldown after a guess (tic handle)
+        currentBoxColor string = "green"
+        recognising  
+        ImageData
     end
 
     methods (Access = private)
@@ -49,7 +53,7 @@ classdef asl_app < matlab.apps.AppBase
         % =========================
         function startupFcn(app)
             app.StatusLabel.Text = 'Initialising...';
-            title(app.ImageAxes, 'Starting camera...');
+            title(app.ImageAxes, ' ');
             drawnow;
 
             % 1. Initialise state variables
@@ -71,12 +75,11 @@ classdef asl_app < matlab.apps.AppBase
                 return;
             end
 
-            title(app.ImageAxes, 'Load a network using the toolbar button.');
             app.StatusLabel.Text = 'Camera ready. Load a network to start recognition.';
             app.IsRunning = true;
 
             % 4. Start loop
-            app.recognitionLoop();
+            app.updateLoop();
         end
 
         % =========================
@@ -104,7 +107,7 @@ classdef asl_app < matlab.apps.AppBase
                 app.NetDisplayName = string(file);
 
                 app.StatusLabel.Text = "Network loaded: " + app.NetDisplayName;
-                title(app.ImageAxes, '');
+                title(app.ImageAxes, ' ');
                 drawnow;
 
             catch err
@@ -146,7 +149,60 @@ classdef asl_app < matlab.apps.AppBase
         % =========================
         % MAIN LOOP
         % =========================
-        function recognitionLoop(app)
+        function updateLoop(app)
+
+            % Increased box size
+            targetBoxSize = 450;
+
+            % Default panel colour
+            defaultPanelColor = app.CamPanel.BackgroundColor;
+
+            while app.IsRunning && isvalid(app.UIFigure)
+                [h, w, ~] = size(app.ImageData);
+
+                % Calculate centre crop
+                boxSize = min([targetBoxSize, h, w]);
+                x = round((w - boxSize)/2);
+                if x < 1
+                    x = 1; 
+                end
+                y = round((h - boxSize)/2);
+                if y < 1
+                    y = 1;
+                end
+                rect = [x, y, boxSize-1, boxSize-1];
+
+                if app.recognising
+                    app.recognise();
+                end
+
+                imgDisplay = insertShape(app.ImageData, 'Rectangle', rect, 'LineWidth', 6, 'Color', app.currentBoxColor);
+                image(app.ImageAxes, imgDisplay);
+                app.ImageAxes.XTick = [];
+                app.ImageAxes.YTick = [];
+
+                drawnow limitrate;
+            end
+
+        end
+
+        % =========================
+        % HELPERS
+        % =========================
+        function appendToSentence(app, charToAdd)
+            app.SentenceText = app.SentenceText + charToAdd;
+            app.SentenceLabel.Text = app.SentenceText;
+        end
+
+        function getimage(app)
+            try
+                app.ImageData = fliplr(snapshot(app.Cam));
+            catch err
+                err
+            end
+        end
+
+        function recognise(app)
 
             % Increased box size
             targetBoxSize = 450;
@@ -159,124 +215,66 @@ classdef asl_app < matlab.apps.AppBase
             % Default panel colour
             defaultPanelColor = app.CamPanel.BackgroundColor;
 
-            while app.IsRunning && isvalid(app.UIFigure)
-                try
-                    % --- A. Capture ---
-                    img = snapshot(app.Cam);
-                    img = fliplr(img);
-                    [h, w, ~] = size(img);
+            [h, w, ~] = size(app.ImageData);
 
-                    % If no network is loaded, just show the camera feed
-                    if isempty(app.Net) || isempty(app.NetInputSize)
-                        image(app.ImageAxes, img);
-                        app.ImageAxes.XTick = []; app.ImageAxes.YTick = [];
-                        app.CurrentCharLabel.Text = '-';
-                        app.ConfGauge.Value = 0;
-                        app.StatusLabel.Text = 'Load a network from the toolbar to begin.';
-                        drawnow limitrate;
-                        continue;
-                    end
-
-                    % Calculate centre crop
-                    boxSize = min([targetBoxSize, h, w]);
-                    x = round((w - boxSize)/2); if x < 1, x = 1; end
-                    y = round((h - boxSize)/2); if y < 1, y = 1; end
-                    rect = [x, y, boxSize-1, boxSize-1];
-
-                    % --- B. Cooldown check ---
-                    timeSinceLock = toc(app.LastLockInTime);
-
-                    if timeSinceLock < COOLDOWN_TIME
-                        % In cooldown, show green box and skip classification
-                        boxColor = 'green';
-
-                        imgDisplay = insertShape(img, 'Rectangle', rect, 'LineWidth', 6, 'Color', boxColor);
-                        image(app.ImageAxes, imgDisplay);
-                        app.ImageAxes.XTick = []; app.ImageAxes.YTick = [];
-
-                        if timeSinceLock < 0.3
-                            app.CamPanel.BackgroundColor = [0.6 1 0.6]; % light green
-                        else
-                            app.CamPanel.BackgroundColor = defaultPanelColor;
-                        end
-
-                        drawnow limitrate;
-                        continue;
-                    else
-                        app.CamPanel.BackgroundColor = defaultPanelColor;
-                    end
-
-                    % --- C. Classification ---
-                    imgHand = imcrop(img, rect);
-                    imgResized = imresize(imgHand, app.NetInputSize);
-                    [labelCat, scores] = classify(app.Net, imgResized);
-
-                    maxScore = max(scores);
-                    currentChar = char(labelCat);
-
-                    % --- D. Lock-in logic ---
-                    boxColor = 'yellow';
-
-                    if maxScore > CONF_THRESHOLD
-                        boxColor = 'cyan';
-
-                        if strcmp(currentChar, app.LastStableChar)
-                            if toc(app.StableStartTime) > TIME_THRESHOLD
-                                % Lock in
-                                app.appendToSentence(currentChar);
-
-                                % Start cooldown
-                                app.LastLockInTime = tic;
-
-                                % Reset stability
-                                app.StableStartTime = tic;
-
-                                boxColor = 'green';
-                                app.StatusLabel.Text = ['Locked: ' currentChar];
-                            end
-                        else
-                            app.LastStableChar = currentChar;
-                            app.StableStartTime = tic;
-                        end
-                    else
-                        app.LastStableChar = '';
-                        app.StableStartTime = tic;
-                        if maxScore < 0.5
-                            boxColor = 'red';
-                        end
-                        app.StatusLabel.Text = 'Scanning...';
-                    end
-
-                    % --- E. Update UI ---
-                    imgDisplay = insertShape(img, 'Rectangle', rect, 'LineWidth', 4, 'Color', boxColor);
-                    image(app.ImageAxes, imgDisplay);
-                    app.ImageAxes.XTick = []; app.ImageAxes.YTick = [];
-
-                    app.CurrentCharLabel.Text = currentChar;
-
-                    if maxScore < CONF_THRESHOLD
-                        app.CurrentCharLabel.FontColor = [0.85 0.33 0.1]; % orange
-                    else
-                        app.CurrentCharLabel.FontColor = [0 0.5 0]; % green
-                    end
-
-                    app.ConfGauge.Value = maxScore * 100;
-
-                    drawnow limitrate;
-
-                catch err
-                    fprintf('Loop Error: %s\n', err.message);
-                    app.IsRunning = false;
-                end
+            % Calculate centre crop
+            boxSize = min([targetBoxSize, h, w]);
+            x = round((w - boxSize)/2);
+            if x < 1
+                x = 1; 
             end
-        end
+            y = round((h - boxSize)/2);
+            if y < 1
+                y = 1;
+            end
+            rect = [x, y, boxSize-1, boxSize-1];
 
-        % =========================
-        % SENTENCE HELPERS
-        % =========================
-        function appendToSentence(app, charToAdd)
-            app.SentenceText = app.SentenceText + charToAdd;
-            app.SentenceLabel.Text = app.SentenceText;
+            % --- B. Cooldown check ---
+            timeSinceLock = toc(app.LastLockInTime);
+
+            if timeSinceLock < COOLDOWN_TIME
+                return;
+            end
+
+            % --- C. Classification ---
+            imgHand = imcrop(app.ImageData, rect);
+            imgResized = imresize(imgHand, app.NetInputSize);
+            [labelCat, scores] = classify(app.Net, imgResized);
+
+            maxScore = max(scores);
+            currentChar = char(labelCat);
+
+            % --- D. Lock-in logic ---
+            if maxScore > CONF_THRESHOLD
+                if strcmp(currentChar, app.LastStableChar)
+                    if toc(app.StableStartTime) > TIME_THRESHOLD
+                        app.appendToSentence(currentChar);
+                        app.CurrentCharLabel.FontColor = [0 0.5 0];
+
+                        app.LastLockInTime = tic;
+                        app.StableStartTime = tic;
+
+                        app.currentBoxColor = 'green';
+                        app.StatusLabel.Text = ['Locked: ' currentChar];
+                    end
+                else
+                    app.LastStableChar = currentChar;
+                    app.StableStartTime = tic;
+                    app.currentBoxColor = 'yellow';
+                    app.StatusLabel.Text = 'Locking in...';
+                    app.CurrentCharLabel.FontColor = [0.85 0.33 0.1];
+                end
+            else
+                app.LastStableChar = '';
+                app.StableStartTime = tic;
+                app.currentBoxColor = 'red';
+                app.StatusLabel.Text = 'Scanning...';
+                app.CurrentCharLabel.FontColor = [0.95 0.23 0.05];
+            end
+
+            app.CurrentCharLabel.Text = currentChar;
+
+            app.ConfGauge.Value = maxScore * 100;
         end
 
         % =========================
@@ -296,13 +294,30 @@ classdef asl_app < matlab.apps.AppBase
 
         function StopButtonPushed(app, event)
             app.IsRunning = false;
-            pause(0.1);
+            pause(0.2);
             if ~isempty(app.Cam)
                 delete(app.Cam);
                 app.Cam = [];
             end
             if isvalid(app.UIFigure)
                 delete(app.UIFigure);
+            end
+        end 
+
+        function UIFigureWindowKeyPress(app, event)
+            if strcmp(event.Key, 'space')
+                app.recognising = true;
+                app.currentBoxColor = 'cyan';
+            elseif strcmp(event.Key,'backspace')
+                app.DeleteButtonPushed(event)
+            end
+        end
+
+        function UIFigureWindowKeyRelease(app, event)
+            if strcmp(event.Key, 'space')
+                app.recognising = false;
+                app.currentBoxColor = 'green';
+                app.StatusLabel.Text = 'Detection Paused';
             end
         end
 
@@ -321,6 +336,8 @@ classdef asl_app < matlab.apps.AppBase
             app.UIFigure.Position = [50 50 1100 650];
             app.UIFigure.Name = 'ASL Pro Translator v3';
             app.UIFigure.Color = [0.92 0.93 0.94];
+            app.UIFigure.WindowKeyPressFcn = createCallbackFcn(app, @UIFigureWindowKeyPress, true);
+            app.UIFigure.WindowKeyReleaseFcn = createCallbackFcn(app, @UIFigureWindowKeyRelease, true);
             app.UIFigure.CloseRequestFcn = createCallbackFcn(app, @UIFigureCloseRequest, true);
 
             % === TOOLBAR ===
@@ -331,10 +348,7 @@ classdef asl_app < matlab.apps.AppBase
             icon(:,:,2) = 0.6;
             icon(3:14,3:14,:) = 0.9;
 
-            app.LoadNetTool = uipushtool(app.Toolbar, ...
-                'Tooltip', 'Load Network (.mat)', ...
-                'CData', icon, ...
-                'ClickedCallback', @(src,event)app.LoadNetToolClicked());
+            app.LoadNetTool = uipushtool(app.Toolbar, 'Tooltip', 'Load Network (.mat)', 'CData', icon, 'ClickedCallback', @(src,event)app.LoadNetToolClicked());
 
             % Define column geometry
             col1_x = 20;  col1_w = 320;
@@ -362,8 +376,11 @@ classdef asl_app < matlab.apps.AppBase
 
             % === MIDDLE PANEL: Camera & sentence ===
             app.CamPanel = uipanel(app.UIFigure);
-            app.CamPanel.Title = 'Live Input & Translation';
+            app.CamPanel.Title = 'Input & Translation';
             app.CamPanel.Position = [col2_x base_y col2_w panel_h];
+
+            app.ImageInputSelectionDropdown = uidropdown(app.CamPanel,Items={'Webcam','Video','Image'});
+            app.ImageInputSelectionDropdown.Position = [20 565 100 20];
 
             app.ImageAxes = uiaxes(app.CamPanel);
             app.ImageAxes.Position = [15 180 450 400];
