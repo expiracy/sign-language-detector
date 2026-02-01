@@ -1,0 +1,23 @@
+ASL Model Training Summary
+==========================
+
+Network Architecture: ResNet-50
+Training Date: 01-Feb-2026 23:52:56
+Training Time: 49.71 minutes
+
+Training Parameters:
+  - Epochs: 5
+  - Mini-Batch Size: 32
+  - Initial Learning Rate: 0.0001
+
+Dataset:
+  - Training Images: 16548
+  - Validation Images: 4138
+  - Number of Classes: 26
+
+Results:
+  - Final Validation Accuracy: 99.11%
+  - Final Training Loss: 0.0103
+  - Mean Precision: 99.18%
+  - Mean Recall: 99.18%
+  - Mean F1 Score: 99.17%
