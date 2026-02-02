@@ -7,6 +7,8 @@ classdef asl_app < matlab.apps.AppBase
         % --- Toolbar ---
         Toolbar         matlab.ui.container.Toolbar
         LoadNetTool     matlab.ui.container.toolbar.PushTool
+        LoadImgTool     matlab.ui.container.toolbar.PushTool
+        LoadVidTool     matlab.ui.container.toolbar.PushTool
 
         % --- Left Panel (Chart) ---
         ChartPanel      matlab.ui.container.Panel
@@ -34,6 +36,7 @@ classdef asl_app < matlab.apps.AppBase
         Net             % The trained AI network (SeriesNetwork or DAGNetwork)
         NetInputSize    double = []   % cached [H W]
         NetDisplayName  string = ""   % selected file name
+        NetLoaded       
         IsRunning       % Loop flag
 
         % Properties for "Lock-in" logic
@@ -43,7 +46,10 @@ classdef asl_app < matlab.apps.AppBase
         LastLockInTime  uint64  % Timer for the 1s cooldown after a guess (tic handle)
         currentBoxColor string = "green"
         recognising  
-        ImageData
+
+        InputVideoReader
+        InputVideoLoaded
+        InputImage
     end
 
     methods (Access = private)
@@ -66,6 +72,7 @@ classdef asl_app < matlab.apps.AppBase
             app.Net = [];
             app.NetInputSize = [];
             app.NetDisplayName = "";
+            app.NetLoaded = false;
 
             % 3. Start camera
             try
@@ -77,6 +84,10 @@ classdef asl_app < matlab.apps.AppBase
 
             app.StatusLabel.Text = 'Camera ready. Load a network to start recognition.';
             app.IsRunning = true;
+
+            app.InputImage = imread('Peppers.png');
+            app.InputVideoLoaded = false;
+            app.recognising = false;
 
             % 4. Start loop
             app.updateLoop();
@@ -105,9 +116,9 @@ classdef asl_app < matlab.apps.AppBase
                 app.Net = net;
                 app.NetInputSize = app.getNetInputSize(net);
                 app.NetDisplayName = string(file);
+                app.NetLoaded = true;
 
                 app.StatusLabel.Text = "Network loaded: " + app.NetDisplayName;
-                title(app.ImageAxes, ' ');
                 drawnow;
 
             catch err
@@ -146,6 +157,30 @@ classdef asl_app < matlab.apps.AppBase
             error("Could not find an InputSize in the network layers.");
         end
 
+        function LoadVidToolClicked(app)
+            [file, path] = uigetfile();
+            if isequal(file, 0)
+                return;
+            end
+
+            fullPath = fullfile(path, file);
+
+            app.InputVideoReader = VideoReader(fullPath);
+            app.InputVideoLoaded = true;
+        end
+
+        function LoadImgToolClicked(app)
+            [file, path] = uigetfile();
+            if isequal(file, 0)
+                return;
+            end
+
+            fullPath = fullfile(path, file);
+
+            app.InputImage = imread(fullPath);
+            
+        end
+
         % =========================
         % MAIN LOOP
         % =========================
@@ -158,7 +193,8 @@ classdef asl_app < matlab.apps.AppBase
             defaultPanelColor = app.CamPanel.BackgroundColor;
 
             while app.IsRunning && isvalid(app.UIFigure)
-                [h, w, ~] = size(app.ImageData);
+                img = getimage(app);
+                [h, w, ~] = size(img);
 
                 % Calculate centre crop
                 boxSize = min([targetBoxSize, h, w]);
@@ -172,11 +208,11 @@ classdef asl_app < matlab.apps.AppBase
                 end
                 rect = [x, y, boxSize-1, boxSize-1];
 
-                if app.recognising
-                    app.recognise();
+                if all([app.recognising, app.NetLoaded])
+                    app.recognise(img);
                 end
 
-                imgDisplay = insertShape(app.ImageData, 'Rectangle', rect, 'LineWidth', 6, 'Color', app.currentBoxColor);
+                imgDisplay = insertShape(img, 'Rectangle', rect, 'LineWidth', 6, 'Color', app.currentBoxColor);
                 image(app.ImageAxes, imgDisplay);
                 app.ImageAxes.XTick = [];
                 app.ImageAxes.YTick = [];
@@ -194,15 +230,28 @@ classdef asl_app < matlab.apps.AppBase
             app.SentenceLabel.Text = app.SentenceText;
         end
 
-        function getimage(app)
-            try
-                app.ImageData = fliplr(snapshot(app.Cam));
-            catch err
-                err
+        function img = getimage(app)
+            if strcmp(app.ImageInputSelectionDropdown.Value,'Webcam')
+                try
+                    img = fliplr(snapshot(app.Cam));
+                catch err
+                    img = imread('peppers.png');
+                end
+            elseif strcmp(app.ImageInputSelectionDropdown.Value,'Video')
+                if app.InputVideoLoaded
+                    if not(app.InputVideoReader.hasFrame())
+                       app.InputVideoReader.CurrentTime = 0;
+                    end
+                    img = readFrame(app.InputVideoReader);
+                else
+                    img = app.InputImage;
+                end
+            elseif strcmp(app.ImageInputSelectionDropdown.Value,'Image')
+                img = app.InputImage;
             end
         end
 
-        function recognise(app)
+        function recognise(app, img)
 
             % Increased box size
             targetBoxSize = 450;
@@ -215,7 +264,7 @@ classdef asl_app < matlab.apps.AppBase
             % Default panel colour
             defaultPanelColor = app.CamPanel.BackgroundColor;
 
-            [h, w, ~] = size(app.ImageData);
+            [h, w, ~] = size(img);
 
             % Calculate centre crop
             boxSize = min([targetBoxSize, h, w]);
@@ -237,7 +286,7 @@ classdef asl_app < matlab.apps.AppBase
             end
 
             % --- C. Classification ---
-            imgHand = imcrop(app.ImageData, rect);
+            imgHand = imcrop(img, rect);
             imgResized = imresize(imgHand, app.NetInputSize);
             [labelCat, scores] = classify(app.Net, imgResized);
 
@@ -294,7 +343,7 @@ classdef asl_app < matlab.apps.AppBase
 
         function StopButtonPushed(app, event)
             app.IsRunning = false;
-            pause(0.2);
+            pause(2);
             if ~isempty(app.Cam)
                 delete(app.Cam);
                 app.Cam = [];
@@ -323,6 +372,14 @@ classdef asl_app < matlab.apps.AppBase
 
         function UIFigureCloseRequest(app, event)
             app.StopButtonPushed();
+        end                                     
+
+        function InputChoiceUpdated(app)                                              
+            if strcmp(app.ImageInputSelectionDropdown.Value,'Video')
+                app.LoadVidToolClicked();
+            elseif strcmp(app.ImageInputSelectionDropdown.Value,'Image')
+                app.LoadImgToolClicked();
+            end
         end
     end
 
@@ -349,6 +406,9 @@ classdef asl_app < matlab.apps.AppBase
             icon(3:14,3:14,:) = 0.9;
 
             app.LoadNetTool = uipushtool(app.Toolbar, 'Tooltip', 'Load Network (.mat)', 'CData', icon, 'ClickedCallback', @(src,event)app.LoadNetToolClicked());
+            app.LoadVidTool = uipushtool(app.Toolbar, 'Tooltip', 'Load Video', 'CData', icon, 'ClickedCallback', @(src,event)app.LoadVidToolClicked());
+            app.LoadImgTool = uipushtool(app.Toolbar, 'Tooltip', 'Load Photo', 'CData', icon, 'ClickedCallback', @(src,event)app.LoadImgToolClicked());
+
 
             % Define column geometry
             col1_x = 20;  col1_w = 320;
@@ -381,6 +441,7 @@ classdef asl_app < matlab.apps.AppBase
 
             app.ImageInputSelectionDropdown = uidropdown(app.CamPanel,Items={'Webcam','Video','Image'});
             app.ImageInputSelectionDropdown.Position = [20 565 100 20];
+            app.ImageInputSelectionDropdown.ValueChangedFcn = @(src,event)app.InputChoiceUpdated();
 
             app.ImageAxes = uiaxes(app.CamPanel);
             app.ImageAxes.Position = [15 180 450 400];
