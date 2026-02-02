@@ -56,10 +56,25 @@ classdef data_collector < matlab.apps.AppBase
 
         % Loop to update camera feed on the Axes
         function updatePreviewLoop(app)
+            % Target box size (same as asl_app)
+            targetBoxSize = 450;
+            
             while app.IsCapturing && isvalid(app.UIFigure)
                 try
                     img = snapshot(app.Cam);
-                    image(app.ImageAxes, fliplr(img)); % Mirror view
+                    img = fliplr(img); % Mirror view
+                    [h, w, ~] = size(img);
+                    
+                    % Calculate centre crop rectangle (same as asl_app)
+                    boxSize = min([targetBoxSize, h, w]);
+                    x = round((w - boxSize)/2); if x < 1, x = 1; end
+                    y = round((h - boxSize)/2); if y < 1, y = 1; end
+                    rect = [x, y, boxSize-1, boxSize-1];
+                    
+                    % Draw yellow rectangle to show hand placement area
+                    imgDisplay = insertShape(img, 'Rectangle', rect, 'LineWidth', 4, 'Color', 'yellow');
+                    
+                    image(app.ImageAxes, imgDisplay);
                     app.ImageAxes.XTick = [];
                     app.ImageAxes.YTick = [];
                     app.ImageAxes.Box = 'on'; 
@@ -111,7 +126,7 @@ classdef data_collector < matlab.apps.AppBase
             % --- FOLDER CONSTRUCTION ---
             
             % Root: ASL_DATA_NAME / LETTER
-            rootFolder = fullfile(pwd, ['ASL_DATA_', userName]);
+            rootFolder = fullfile(pwd, ['data/datasets_v2/ASL_DATA_', userName]);
             savePath = fullfile(rootFolder, targetChar);
             
             if ~exist(savePath, 'dir')
@@ -131,10 +146,21 @@ classdef data_collector < matlab.apps.AppBase
                 pause(0.1); % Small pause for readability
             end
 
-            % Process Image
+            % Process Image - capture the region inside the rectangle (same as asl_app)
             img = snapshot(app.Cam);
-            imgFlipped = fliplr(img); 
-            imgResized = imresize(imgFlipped, [224, 224]); 
+            imgFlipped = fliplr(img);
+            [h, w, ~] = size(imgFlipped);
+            
+            % Calculate centre crop rectangle (same as asl_app)
+            targetBoxSize = 450;
+            boxSize = min([targetBoxSize, h, w]);
+            x = round((w - boxSize)/2); if x < 1, x = 1; end
+            y = round((h - boxSize)/2); if y < 1, y = 1; end
+            rect = [x, y, boxSize-1, boxSize-1];
+            
+            % Crop to the rectangle region
+            imgCropped = imcrop(imgFlipped, rect);
+            imgResized = imresize(imgCropped, [224, 224]); 
             imwrite(imgResized, fullFilePath);
             
             % --- UI FEEDBACK & UPDATES ---
