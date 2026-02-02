@@ -123,7 +123,7 @@ classdef data_collector < matlab.apps.AppBase
             % 3. Get Current ID
             currentID = app.IDEdit.Value;
             
-            % --- FOLDER CONSTRUCTION ---
+            % --- FOLDER CONSTRUCTION --fr-
             
             % Root: ASL_DATA_NAME / LETTER
             rootFolder = fullfile(pwd, ['data/datasets_v2/ASL_DATA_', userName]);
