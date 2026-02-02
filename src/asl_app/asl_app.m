@@ -26,6 +26,10 @@ classdef asl_app < matlab.apps.AppBase
         GaugeLabel       matlab.ui.control.Label
         Top5Label        matlab.ui.control.Label
         Top5List         matlab.ui.control.Label
+        ConfThreshSlider matlab.ui.control.Slider
+        ConfThreshLabel  matlab.ui.control.Label
+        GapThreshSlider  matlab.ui.control.Slider
+        GapThreshLabel   matlab.ui.control.Label
         StatusLabel      matlab.ui.control.Label
         StopButton       matlab.ui.control.Button
     end
@@ -47,6 +51,10 @@ classdef asl_app < matlab.apps.AppBase
         LastPredictedScore  double  % Cached confidence score
         LastScores          double  % Cached full scores array
         LastScoreDiff       double  % Difference between top two predictions
+
+        % Configurable thresholds
+        MinConfidence       double = 0.7
+        MinScoreDiff        double = 0.3
     end
 
     methods (Access = private)
@@ -78,7 +86,6 @@ classdef asl_app < matlab.apps.AppBase
             % Start camera with timeout configuration
             try
                 app.Cam = webcam;
-                % Increase timeout if the property is supported
                 if isprop(app.Cam, 'Timeout')
                     app.Cam.Timeout = 10;
                 end
@@ -189,6 +196,19 @@ classdef asl_app < matlab.apps.AppBase
         end
 
         % =========================
+        % SLIDER CALLBACKS
+        % =========================
+        function ConfThreshSliderChanged(app, ~)
+            app.MinConfidence = app.ConfThreshSlider.Value / 100;
+            app.ConfThreshLabel.Text = sprintf('Min Confidence: %d%%', round(app.ConfThreshSlider.Value));
+        end
+
+        function GapThreshSliderChanged(app, ~)
+            app.MinScoreDiff = app.GapThreshSlider.Value / 100;
+            app.GapThreshLabel.Text = sprintf('Min Gap: %d%%', round(app.GapThreshSlider.Value));
+        end
+
+        % =========================
         % TOP 5 DISPLAY HELPER
         % =========================
         function updateTop5Display(app, scores, classNames)
@@ -218,8 +238,6 @@ classdef asl_app < matlab.apps.AppBase
 
             % Logic constants
             PREDICTION_INTERVAL = 1.0;
-            MIN_CONFIDENCE = 0.7;
-            MIN_SCORE_DIFF = 0.3;
             MAX_CAPTURE_RETRIES = 3;
 
             defaultPanelColor = app.CamPanel.BackgroundColor;
@@ -319,7 +337,7 @@ classdef asl_app < matlab.apps.AppBase
                     scoreDiff = app.LastScoreDiff;
 
                     % Check if lock-in conditions are met
-                    meetsThreshold = (maxScore >= MIN_CONFIDENCE) && (scoreDiff >= MIN_SCORE_DIFF);
+                    meetsThreshold = (maxScore >= app.MinConfidence) && (scoreDiff >= app.MinScoreDiff);
                     isDifferentChar = ~strcmp(currentChar, app.LastLockedChar);
                     canLockIn = meetsThreshold && isDifferentChar;
 
@@ -342,12 +360,12 @@ classdef asl_app < matlab.apps.AppBase
                         elseif meetsThreshold
                             boxColor = 'cyan';
                             app.StatusLabel.Text = 'Ready...';
-                        elseif maxScore < MIN_CONFIDENCE
+                        elseif maxScore < app.MinConfidence
                             boxColor = 'red';
-                            app.StatusLabel.Text = sprintf('Conf: %.0f%% (need 60%%)', maxScore * 100);
+                            app.StatusLabel.Text = sprintf('Conf: %.0f%% (need %.0f%%)', maxScore * 100, app.MinConfidence * 100);
                         else
                             boxColor = 'yellow';
-                            app.StatusLabel.Text = sprintf('Gap: %.0f%% (need 20%%)', scoreDiff * 100);
+                            app.StatusLabel.Text = sprintf('Gap: %.0f%% (need %.0f%%)', scoreDiff * 100, app.MinScoreDiff * 100);
                         end
                     end
 
@@ -511,39 +529,63 @@ classdef asl_app < matlab.apps.AppBase
             app.ResultsPanel.Position = [col3_x base_y col3_w panel_h];
 
             app.CurrentCharLabel = uilabel(app.ResultsPanel);
-            app.CurrentCharLabel.Position = [10 420 200 120];
+            app.CurrentCharLabel.Position = [10 480 200 100];
             app.CurrentCharLabel.Text = '-';
             app.CurrentCharLabel.FontSize = 90;
             app.CurrentCharLabel.FontWeight = 'bold';
             app.CurrentCharLabel.HorizontalAlignment = 'center';
 
             app.ConfGauge = uigauge(app.ResultsPanel, 'linear');
-            app.ConfGauge.Position = [10 380 200 40];
+            app.ConfGauge.Position = [10 440 200 40];
             app.ConfGauge.Limits = [0 100];
             app.ConfGauge.ScaleColors = [0.8 0 0; 1 0.8 0; 0 0.6 0];
             app.ConfGauge.ScaleColorLimits = [0 40; 40 70; 70 100];
 
             app.GaugeLabel = uilabel(app.ResultsPanel);
-            app.GaugeLabel.Position = [10 355 200 22];
+            app.GaugeLabel.Position = [10 415 200 22];
             app.GaugeLabel.Text = 'Confidence %';
             app.GaugeLabel.HorizontalAlignment = 'center';
 
             app.Top5Label = uilabel(app.ResultsPanel);
-            app.Top5Label.Position = [10 310 200 22];
+            app.Top5Label.Position = [10 380 200 22];
             app.Top5Label.Text = 'Top 5 Predictions';
             app.Top5Label.FontWeight = 'bold';
             app.Top5Label.HorizontalAlignment = 'center';
 
             app.Top5List = uilabel(app.ResultsPanel);
-            app.Top5List.Position = [10 190 200 120];
+            app.Top5List.Position = [10 260 200 120];
             app.Top5List.Text = '-';
             app.Top5List.FontSize = 14;
             app.Top5List.FontName = 'Consolas';
             app.Top5List.VerticalAlignment = 'top';
             app.Top5List.BackgroundColor = [0.95 0.95 0.95];
 
+            % Confidence threshold slider
+            app.ConfThreshLabel = uilabel(app.ResultsPanel);
+            app.ConfThreshLabel.Position = [10 225 200 22];
+            app.ConfThreshLabel.Text = 'Min Confidence: 70%';
+            app.ConfThreshLabel.HorizontalAlignment = 'center';
+
+            app.ConfThreshSlider = uislider(app.ResultsPanel);
+            app.ConfThreshSlider.Position = [20 215 180 3];
+            app.ConfThreshSlider.Limits = [0 100];
+            app.ConfThreshSlider.Value = 70;
+            app.ConfThreshSlider.ValueChangedFcn = createCallbackFcn(app, @ConfThreshSliderChanged, true);
+
+            % Gap threshold slider
+            app.GapThreshLabel = uilabel(app.ResultsPanel);
+            app.GapThreshLabel.Position = [10 165 200 22];
+            app.GapThreshLabel.Text = 'Min Gap: 30%';
+            app.GapThreshLabel.HorizontalAlignment = 'center';
+
+            app.GapThreshSlider = uislider(app.ResultsPanel);
+            app.GapThreshSlider.Position = [20 155 180 3];
+            app.GapThreshSlider.Limits = [0 100];
+            app.GapThreshSlider.Value = 30;
+            app.GapThreshSlider.ValueChangedFcn = createCallbackFcn(app, @GapThreshSliderChanged, true);
+
             app.StatusLabel = uilabel(app.ResultsPanel);
-            app.StatusLabel.Position = [10 120 200 60];
+            app.StatusLabel.Position = [10 90 200 50];
             app.StatusLabel.Text = 'Scanning...';
             app.StatusLabel.HorizontalAlignment = 'center';
             app.StatusLabel.WordWrap = 'on';
@@ -551,7 +593,7 @@ classdef asl_app < matlab.apps.AppBase
             app.StatusLabel.FontAngle = 'italic';
 
             app.StopButton = uibutton(app.ResultsPanel, 'push');
-            app.StopButton.Position = [10 20 200 60];
+            app.StopButton.Position = [10 20 200 55];
             app.StopButton.Text = 'STOP SYSTEM';
             app.StopButton.ButtonPushedFcn = createCallbackFcn(app, @StopButtonPushed, true);
             app.StopButton.BackgroundColor = [0.7 0.2 0.2];
