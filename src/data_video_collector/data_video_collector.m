@@ -88,7 +88,10 @@ classdef data_video_collector < matlab.apps.AppBase
         
                 % Only write video when recording
                 if app.isRecording
-                    writeVideo(app.videoWriter, fliplr(frame));
+                    % Crop to the rectangle region
+                    imgCropped = imcrop(fliplr(frame), rect);
+                    imgResized = imresize(imgCropped, [224, 224]); 
+                    writeVideo(app.videoWriter, imgResized);
                 end
         
                 drawnow limitrate;
