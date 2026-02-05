@@ -13,6 +13,9 @@ if ~exist(outputDir, 'dir')
 end
 fprintf('   > Output directory created: %s', outputDir);
 
+net = resnet50;
+analyzeNetwork(net)
+
 %% SECTION 2: Targeted Data Loading
 fprintf('[Step 2] Initializing Data Loading...');
 
