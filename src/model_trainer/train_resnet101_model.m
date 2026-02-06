@@ -1,4 +1,4 @@
-% Train_ASL_Model_GoogLeNet.m
+% Train_ASL_Model_ResNet101.m
 
 clc; clear; close all;
 
@@ -62,13 +62,13 @@ fprintf('   > Data Split Completed:\n');
 fprintf('     - Training Images:   %d\n', length(imdsTrain.Files));
 fprintf('     - Validation Images: %d\n', length(imdsValidation.Files));
 
-%% SECTION 4: Load Pre-trained Network (GoogLeNet)
-fprintf('[Step 4] Loading GoogLeNet Architecture...\n');
+%% SECTION 4: Load Pre-trained Network (ResNet-101)
+fprintf('[Step 4] Loading ResNet-101 Architecture...\n');
 try
-    net = googlenet;
-    fprintf('   > GoogLeNet loaded successfully.\n');
+    net = resnet101;
+    fprintf('   > ResNet-101 loaded successfully.\n');
 catch
-    error('CRITICAL ERROR: GoogLeNet not found. Please install "Deep Learning Toolbox Model for GoogLeNet Network".');
+    error('CRITICAL ERROR: ResNet-101 not found. Please install "Deep Learning Toolbox Model for ResNet-101 Network".');
 end
 
 lgraph = layerGraph(net);
@@ -84,7 +84,8 @@ if numClasses < 2
     error('CRITICAL ERROR: Found fewer than 2 classes.');
 end
 
-layersToRemove = {'loss3-classifier', 'prob', 'output'};
+% ResNet-101 shares the same final layer names as ResNet-50
+layersToRemove = {'fc1000', 'fc1000_softmax', 'ClassificationLayer_fc1000'};
 lgraph = removeLayers(lgraph, layersToRemove);
 
 newLayers = [
@@ -96,7 +97,7 @@ newLayers = [
     classificationLayer('Name', 'classoutput')];
 
 lgraph = addLayers(lgraph, newLayers);
-lgraph = connectLayers(lgraph, 'pool5-drop_7x7_s1', 'new_fc');
+lgraph = connectLayers(lgraph, 'avg_pool', 'new_fc');
 fprintf('   > New layers attached. Network graph is valid.\n');
 
 %% SECTION 6: Data Augmentation

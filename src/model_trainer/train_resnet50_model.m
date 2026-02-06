@@ -12,6 +12,7 @@ if ~exist(outputDir, 'dir')
     mkdir(outputDir);
 end
 fprintf('   > Output directory created: %s\n', outputDir);
+
 %% SECTION 2: Targeted Data Loading
 fprintf('[Step 2] Initializing Data Loading...\n');
 
@@ -132,7 +133,6 @@ fprintf('   > Options set. Visual Progress Window will launch shortly.\n');
 
 %% SECTION 8: Training Execution
 fprintf('[Step 8] Starting Training...\n');
-fprintf('   > A separate window will open to show the Progress Bar.\n');
 
 trainingTimer = tic;
 
@@ -146,43 +146,8 @@ end
 trainingTime = toc(trainingTimer);
 fprintf('   > Training Complete in %.2f minutes.\n', trainingTime/60);
 
-%% SECTION 9: Save Training Progress Plot
-fprintf('[Step 9] Saving Training Progress Plot...\n');
-
-figTraining = figure('Name', 'Training Progress', 'Position', [100 100 1200 500]);
-
-subplot(1,2,1);
-plot(trainingInfo.TrainingLoss, 'b-', 'LineWidth', 1.5);
-hold on;
-valLossIdx = ~isnan(trainingInfo.ValidationLoss);
-valIterations = find(valLossIdx);
-plot(valIterations, trainingInfo.ValidationLoss(valLossIdx), 'r-', 'LineWidth', 1.5);
-xlabel('Iteration');
-ylabel('Loss');
-title('Training and Validation Loss');
-legend('Training Loss', 'Validation Loss', 'Location', 'northeast');
-grid on;
-hold off;
-
-subplot(1,2,2);
-plot(trainingInfo.TrainingAccuracy, 'b-', 'LineWidth', 1.5);
-hold on;
-valAccIdx = ~isnan(trainingInfo.ValidationAccuracy);
-valIterations = find(valAccIdx);
-plot(valIterations, trainingInfo.ValidationAccuracy(valAccIdx), 'r-', 'LineWidth', 1.5);
-xlabel('Iteration');
-ylabel('Accuracy (%)');
-title('Training and Validation Accuracy');
-legend('Training Accuracy', 'Validation Accuracy', 'Location', 'southeast');
-grid on;
-hold off;
-
-saveas(figTraining, fullfile(outputDir, 'training_progress.png'));
-saveas(figTraining, fullfile(outputDir, 'training_progress.fig'));
-fprintf('   > Training progress plot saved.\n');
-
-%% SECTION 10: Generate and Save Confusion Matrix
-fprintf('[Step 10] Generating Confusion Matrix...\n');
+%% SECTION 9: Generate and Save Confusion Matrix
+fprintf('[Step 9] Generating Confusion Matrix...\n');
 
 predictedLabels = classify(trainedNet, auimdsValidation);
 trueLabels = imdsValidation.Labels;
@@ -197,107 +162,10 @@ confusionchart(trueLabels, predictedLabels, ...
     'ColumnSummary', 'column-normalized');
 
 saveas(figConfusion, fullfile(outputDir, 'confusion_matrix.png'));
-saveas(figConfusion, fullfile(outputDir, 'confusion_matrix.fig'));
 fprintf('   > Confusion matrix saved.\n');
 
-%% SECTION 11: Calculate and Save Per-Class Metrics
-fprintf('[Step 11] Calculating Per-Class Metrics...\n');
-
-confMat = confusionmat(trueLabels, predictedLabels);
-classNames = categories(trueLabels);
-numClassesActual = numel(classNames);
-
-precision = zeros(numClassesActual, 1);
-recall = zeros(numClassesActual, 1);
-f1Score = zeros(numClassesActual, 1);
-
-for i = 1:numClassesActual
-    tp = confMat(i, i);
-    fp = sum(confMat(:, i)) - tp;
-    fn = sum(confMat(i, :)) - tp;
-    
-    if (tp + fp) > 0
-        precision(i) = tp / (tp + fp);
-    end
-    
-    if (tp + fn) > 0
-        recall(i) = tp / (tp + fn);
-    end
-    
-    if (precision(i) + recall(i)) > 0
-        f1Score(i) = 2 * (precision(i) * recall(i)) / (precision(i) + recall(i));
-    end
-end
-
-metricsTable = table(classNames, precision * 100, recall * 100, f1Score * 100, ...
-    'VariableNames', {'Class', 'Precision', 'Recall', 'F1_Score'});
-
-figMetrics = figure('Name', 'Per-Class Metrics', 'Position', [100 100 1000 600]);
-bar([precision, recall, f1Score] * 100);
-set(gca, 'XTickLabel', classNames);
-xlabel('Class');
-ylabel('Percentage (%)');
-title('Per-Class Performance Metrics');
-legend('Precision', 'Recall', 'F1 Score', 'Location', 'southoutside', 'Orientation', 'horizontal');
-grid on;
-
-saveas(figMetrics, fullfile(outputDir, 'per_class_metrics.png'));
-saveas(figMetrics, fullfile(outputDir, 'per_class_metrics.fig'));
-fprintf('   > Per-class metrics plot saved.\n');
-
-%% SECTION 12: Save All Results
-fprintf('[Step 12] Saving All Results...\n');
+%% SECTION 10: Save Trained Network
+fprintf('[Step 10] Saving Trained Network...\n');
 
 save(fullfile(outputDir, 'trained_network.mat'), 'trainedNet');
 fprintf('   > Trained network saved.\n');
-
-save(fullfile(outputDir, 'training_info.mat'), 'trainingInfo');
-fprintf('   > Training info saved.\n');
-
-writetable(metricsTable, fullfile(outputDir, 'per_class_metrics.csv'));
-fprintf('   > Per-class metrics CSV saved.\n');
-
-summary.NetworkArchitecture = 'ResNet-50';
-summary.TrainingDate = datestr(now);
-summary.TrainingTimeMinutes = trainingTime / 60;
-summary.TotalEpochs = epochs;
-summary.MiniBatchSize = 32;
-summary.InitialLearningRate = 0.0001;
-summary.TrainingImages = length(imdsTrain.Files);
-summary.ValidationImages = length(imdsValidation.Files);
-summary.NumClasses = numClasses;
-summary.FinalValidationAccuracy = validationAccuracy;
-summary.FinalTrainingLoss = trainingInfo.TrainingLoss(end);
-summary.MeanPrecision = mean(precision) * 100;
-summary.MeanRecall = mean(recall) * 100;
-summary.MeanF1Score = mean(f1Score) * 100;
-
-save(fullfile(outputDir, 'training_summary.mat'), 'summary');
-
-summaryFileID = fopen(fullfile(outputDir, 'training_summary.txt'), 'w');
-fprintf(summaryFileID, 'ASL Model Training Summary\n');
-fprintf(summaryFileID, '==========================\n');
-fprintf(summaryFileID, 'Network Architecture: %s\n', summary.NetworkArchitecture);
-fprintf(summaryFileID, 'Training Date: %s\n', summary.TrainingDate);
-fprintf(summaryFileID, 'Training Time: %.2f minutes\n', summary.TrainingTimeMinutes);
-fprintf(summaryFileID, 'Training Parameters:\n');
-fprintf(summaryFileID, '  - Epochs: %d\n', summary.TotalEpochs);
-fprintf(summaryFileID, '  - Mini-Batch Size: %d\n', summary.MiniBatchSize);
-fprintf(summaryFileID, '  - Initial Learning Rate: %.4f\n', summary.InitialLearningRate);
-fprintf(summaryFileID, 'Dataset:\n');
-fprintf(summaryFileID, '  - Training Images: %d\n', summary.TrainingImages);
-fprintf(summaryFileID, '  - Validation Images: %d\n', summary.ValidationImages);
-fprintf(summaryFileID, '  - Number of Classes: %d\n', summary.NumClasses);
-fprintf(summaryFileID, 'Results:\n');
-fprintf(summaryFileID, '  - Final Validation Accuracy: %.2f%%\n', summary.FinalValidationAccuracy);
-fprintf(summaryFileID, '  - Final Training Loss: %.4f\n', summary.FinalTrainingLoss);
-fprintf(summaryFileID, '  - Mean Precision: %.2f%%\n', summary.MeanPrecision);
-fprintf(summaryFileID, '  - Mean Recall: %.2f%%\n', summary.MeanRecall);
-fprintf(summaryFileID, '  - Mean F1 Score: %.2f%%\n', summary.MeanF1Score);
-fclose(summaryFileID);
-fprintf('   > Training summary text file saved.\n');
-
-save(fullfile(outputDir, 'confusion_matrix_data.mat'), 'confMat', 'classNames', 'predictedLabels', 'trueLabels');
-fprintf('   > Confusion matrix data saved.\n');
-
-fprintf('=== SUCCESS: All outputs saved to %s ===\n', outputDir);
