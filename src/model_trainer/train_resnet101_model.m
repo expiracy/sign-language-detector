@@ -84,8 +84,7 @@ if numClasses < 2
     error('CRITICAL ERROR: Found fewer than 2 classes.');
 end
 
-% ResNet-101 shares the same final layer names as ResNet-50
-layersToRemove = {'fc1000', 'fc1000_softmax', 'ClassificationLayer_fc1000'};
+layersToRemove = {'fc1000', 'prob', 'ClassificationLayer_predictions'};
 lgraph = removeLayers(lgraph, layersToRemove);
 
 newLayers = [
@@ -97,7 +96,7 @@ newLayers = [
     classificationLayer('Name', 'classoutput')];
 
 lgraph = addLayers(lgraph, newLayers);
-lgraph = connectLayers(lgraph, 'avg_pool', 'new_fc');
+lgraph = connectLayers(lgraph, 'pool5', 'new_fc');
 fprintf('   > New layers attached. Network graph is valid.\n');
 
 %% SECTION 6: Data Augmentation
