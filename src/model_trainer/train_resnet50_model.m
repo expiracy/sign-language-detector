@@ -18,7 +18,7 @@ fprintf('[Step 2] Initializing Data Loading...\n');
 datasetPath = fullfile(pwd, 'data/datasets_v2/'); 
 
 if ~exist(datasetPath, 'dir')
-    fprintf('   > Warning: "data/datasets_v2/" folder not found at: %s\n', datasetPath);
+    fprintf('   > Warning: folder not found at: %s\n', datasetPath);
     fprintf('   > Scanning current directory instead...\n');
     datasetPath = pwd; 
 else

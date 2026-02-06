@@ -5,7 +5,7 @@ clc; clear; close all;
 parallel.gpu.enableCUDAForwardCompatibility(true);
 
 %% SECTION 1: Targeted Data Loading
-fprintf('<strong>[Step 1] Initializing Data Loading...</strong>\n');
+fprintf('[Step 1] Initializing Data Loading...\n');
 
 % Define the specific path
 datasetPath = fullfile(pwd, 'DataSets'); 
@@ -27,7 +27,7 @@ imds = imageDatastore(datasetPath, ...
 fprintf('   > Total images found: %d\n', length(imds.Files));
 
 %% SECTION 2: Filter & Split Data (STRICT A-Z ONLY)
-fprintf('\n<strong>[Step 2] Filtering Data (A-Z Only)...</strong>\n');
+fprintf('\n[Step 2] Filtering Data (A-Z Only)...\n');
 
 % Count images per class
 labelCounts = countEachLabel(imds);
@@ -66,7 +66,7 @@ fprintf('     - Training Images:   %d\n', length(imdsTrain.Files));
 fprintf('     - Validation Images: %d\n', length(imdsValidation.Files));
 
 %% SECTION 3: Load Pre-trained Network (GoogLeNet)
-fprintf('\n<strong>[Step 3] Loading GoogLeNet Architecture...</strong>\n');
+fprintf('\n[Step 3] Loading GoogLeNet Architecture...\n');
 try
     net = googlenet;
     fprintf('   > GoogLeNet loaded successfully.\n');
@@ -78,7 +78,7 @@ lgraph = layerGraph(net);
 inputSize = net.Layers(1).InputSize; % Usually 224x224x3
 
 %% SECTION 4: Modify Network Layers
-fprintf('\n<strong>[Step 4] Modifying Network Layers...</strong>\n');
+fprintf('\n[Step 4] Modifying Network Layers...\n');
 
 % Now this will correctly return 26
 numClasses = numel(categories(imdsTrain.Labels));
@@ -111,7 +111,7 @@ lgraph = connectLayers(lgraph, 'pool5-drop_7x7_s1', 'new_fc');
 fprintf('   > New layers attached. Network graph is valid.\n');
 
 %% SECTION 5: Data Augmentation
-fprintf('\n<strong>[Step 5] Configuring Data Augmentation...</strong>\n');
+fprintf('\n[Step 5] Configuring Data Augmentation...\n');
 augmenter = imageDataAugmenter( ...
     'RandXTranslation', [-30 30], ...  
     'RandYTranslation', [-30 30], ...  
@@ -124,7 +124,7 @@ auimdsValidation = augmentedImageDatastore(inputSize(1:2), imdsValidation);
 fprintf('   > Augmentation ready.\n');
 
 %% SECTION 6: Training Options
-fprintf('\n<strong>[Step 6] Setting Training Options...</strong>\n');
+fprintf('\n[Step 6] Setting Training Options...\n');
 
 % 'Plots', 'training-progress' opens the external window with the progress bar.
 options = trainingOptions('sgdm', ...
@@ -140,7 +140,7 @@ options = trainingOptions('sgdm', ...
 fprintf('   > Options set. Visual Progress Window will launch shortly.\n');
 
 %% SECTION 7: Training Execution
-fprintf('\n<strong>[Step 7] Starting Training...</strong>\n');
+fprintf('\n[Step 7] Starting Training...\n');
 fprintf('   > ------------------------------------------------------------\n');
 fprintf('   > NOTE: A separate window will open to show the Progress Bar.\n');
 fprintf('   > Look at the top-right of that window for "Estimated Time".\n');
@@ -160,9 +160,9 @@ trainingTime = toc(trainingTimer); % Stop timer
 fprintf('\n   > Training Complete in %.2f minutes.\n', trainingTime/60);
 
 %% SECTION 8: Save Result
-fprintf('\n<strong>[Step 8] Saving Model...</strong>\n');
+fprintf('\n[Step 8] Saving Model...\n');
 saveFilename = 'ASL_Trained_Network.mat';
 save(saveFilename, 'trainedNet');
 
 fprintf('   > Network saved to: %s\n', fullfile(pwd, saveFilename));
-fprintf('<strong>=== SUCCESS: Script Finished ===</strong>\n');
+fprintf('=== SUCCESS: Script Finished ===\n');
