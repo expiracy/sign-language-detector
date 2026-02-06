@@ -4,21 +4,19 @@ classdef asl_app < matlab.apps.AppBase
     properties (Access = public)
         UIFigure        matlab.ui.Figure
 
-        % --- Toolbar ---
-        Toolbar         matlab.ui.container.Toolbar
-        LoadNetTool     matlab.ui.container.toolbar.PushTool
-        ImageInputSelectionDropdown matlab.ui.container.toolbar.ToggleTool
-
         % --- Left Panel (Chart) ---
         ChartPanel      matlab.ui.container.Panel
         ChartImage      matlab.ui.control.Image
-
-        % --- Middle Panel (Camera & Sentence) ---
-        CamPanel        matlab.ui.container.Panel
-        ImageAxes       matlab.ui.control.UIAxes
         SentenceLabel   matlab.ui.control.Label
         SpaceButton     matlab.ui.control.Button
         DeleteButton    matlab.ui.control.Button
+        CopyButton    matlab.ui.control.Button
+
+        % --- Middle Panel (Camera & Sentence) ---
+        CamPanel        matlab.ui.container.Panel
+        ImageInputSelectionDropdown matlab.ui.control.DropDown
+        ImageInputSelectionToggleButton matlab.ui.control.StateButton
+        ImageAxes       matlab.ui.control.UIAxes
 
         % --- Right Panel (Results & Controls) ---
         ResultsPanel     matlab.ui.container.Panel
@@ -32,6 +30,8 @@ classdef asl_app < matlab.apps.AppBase
         GapThreshSlider  matlab.ui.control.Slider
         GapThreshLabel   matlab.ui.control.Label
         StatusLabel      matlab.ui.control.Label
+        NewNetSelectionButton matlab.ui.control.Button
+        NetSelectionDropdown matlab.ui.control.DropDown
     end
 
     properties (Access = private)
@@ -57,6 +57,7 @@ classdef asl_app < matlab.apps.AppBase
         InputVideoReader
         InputVideoLoaded
         LastImgFrameTime
+        LoadedVideoFiles
 
         % Configurable thresholds
         MinConfidence       double = 0.7
@@ -72,9 +73,6 @@ classdef asl_app < matlab.apps.AppBase
         % STARTUP
         % =========================
         function startupFcn(app)
-            app.StatusLabel.Text = 'Initialising...';
-            title(app.ImageAxes, ' ');
-
             % Initialise state variables
             app.SentenceText = "";
             app.LastLockedChar = '';
@@ -89,18 +87,18 @@ classdef asl_app < matlab.apps.AppBase
             % Do not load a fixed network file anymore
             app.Net = [];
             app.NetInputSize = [];
-            app.NetDisplayName = "";
 
             % Start camera with timeout configuration
-            app.InputChoiceUpdated()
+            app.InputChoiceToggleUpdated()
 
-            app.StatusLabel.Text = 'Camera ready. Load a network to start recognition.';
             app.IsRunning = true;
 
             app.InputVideoLoaded = false;
+            app.LoadedVideoFiles = {'Load New...'};
             app.LastImgFrameTime = tic();
 
             % Start loop
+            drawnow
             app.recognitionLoop();
         end
 
@@ -131,7 +129,8 @@ classdef asl_app < matlab.apps.AppBase
         end
 
         function img = getImage(app)
-            if strcmp(app.ImageInputSelectionDropdown.State,'on')
+
+            if ~app.ImageInputSelectionToggleButton.Value
                 captureSuccess = false;
                 
                 for attempt = 1:app.MAX_CAPTURE_RETRIES
@@ -179,41 +178,49 @@ classdef asl_app < matlab.apps.AppBase
                     img = imread('peppers.png');
                 end
             end
+
             img = fliplr(img);
             app.LastImgFrameTime = tic();
         end
 
         % =========================
-        % TOOLBAR CALLBACK
+        % INPUT SELECTION CALLBACKS
         % =========================
-        function LoadNetToolClicked(app,~,~)
+        function LoadNetButtonClicked(app)
             [file, path] = uigetfile({'*.mat','MAT-files (*.mat)'}, 'Select a trained network');
             if isequal(file, 0)
                 return;
             end
 
             fullPath = fullfile(path, file);
+            app.NetSelectionDropdown.Items = [app.NetSelectionDropdown.Items,{fullPath}];
+            app.NetSelectionDropdown.Value = fullPath;
+            app.NetSelectionUpdated();
+        end
 
-            try
-                data = load(fullPath);
-                [net, ~] = app.findNetworkInLoadedStruct(data);
+        function NetSelectionUpdated(app)
+            fullPath = app.NetSelectionDropdown.Value;
 
-                if ~(isa(net, 'SeriesNetwork') || isa(net, 'DAGNetwork'))
-                    error('Unsupported network type. Save a SeriesNetwork or DAGNetwork.');
+            if ~strcmp(fullPath,'No Net Loaded')
+                try
+                    data = load(fullPath);
+                    [net, ~] = app.findNetworkInLoadedStruct(data);
+    
+                    if ~(isa(net, 'SeriesNetwork') || isa(net, 'DAGNetwork'))
+                        error('Unsupported network type. Save a SeriesNetwork or DAGNetwork.');
+                    end
+    
+                    app.Net = net;
+                    app.NetInputSize = app.getNetInputSize(net);
+    
+                    % Reset state when loading a new network
+                    app.LastLockedChar = '';
+                    app.LastPredictionTime = tic;
+    
+    
+                catch err
+                    uialert(app.UIFigure, err.message, 'Network Load Error');
                 end
-
-                app.Net = net;
-                app.NetInputSize = app.getNetInputSize(net);
-                app.NetDisplayName = string(file);
-
-                % Reset state when loading a new network
-                app.LastLockedChar = '';
-                app.LastPredictionTime = tic;
-
-                app.StatusLabel.Text = "Network loaded: " + app.NetDisplayName;
-
-            catch err
-                uialert(app.UIFigure, err.message, 'Network Load Error');
             end
         end
 
@@ -245,27 +252,44 @@ classdef asl_app < matlab.apps.AppBase
             error("Could not find an InputSize in the network layers.");
         end
 
-
-        function InputChoiceUpdated(app,~,~)                                              
-            if strcmp(app.ImageInputSelectionDropdown.State,'off')
-                [file, path] = uigetfile('*','Video Selection');
-                if isequal(file, 0)
-                    return;
-                end
-    
-                fullPath = fullfile(path, file);
-    
-                app.InputVideoReader = VideoReader(fullPath);
-                app.InputVideoLoaded = true;
+        
+        function InputChoiceToggleUpdated(app)                                              
+            if app.ImageInputSelectionToggleButton.Value
+                app.ImageInputSelectionToggleButton.Text = 'Video';
+                app.ImageInputSelectionDropdown.Items = app.LoadedVideoFiles;
             else
+                app.ImageInputSelectionToggleButton.Text = 'Webcam';
+                app.InputVideoLoaded = false;
                 try
-                    app.Cam = webcam;
-                    if isprop(app.Cam, 'Timeout')
-                        app.Cam.Timeout = 10;
-                    end
-                    app.InputVideoLoaded = false;
+                    app.ImageInputSelectionDropdown.Items = webcamlist();
                 catch
                     uiconfirm(app.UIFigure, 'No webcam found. Connect one and retry.', 'Camera Error','Options',{'OK'});
+                    app.ImageInputSelectionToggleButton.Value = True;
+                    app.InputChoiceToggleUpdated();
+                end
+            end
+            app.InputChoiceDropdownUpdated();
+        end
+
+        function InputChoiceDropdownUpdated(app)                                              
+            if app.ImageInputSelectionToggleButton.Value
+                if strcmp(app.ImageInputSelectionDropdown.Value,'Load New...')
+                    [file, path] = uigetfile('*','Video Selection');
+                    if isequal(file, 0)
+                        return;
+                    end
+                    fullPath = fullfile(path, file);
+                    app.LoadedVideoFiles = [{fullPath}; app.LoadedVideoFiles];
+                    app.ImageInputSelectionDropdown.Items = app.LoadedVideoFiles;
+                    app.ImageInputSelectionDropdown.Value = fullPath;
+                end
+
+                app.InputVideoReader = VideoReader(app.ImageInputSelectionDropdown.Value);
+                app.InputVideoLoaded = true;
+            else
+                app.Cam = webcam(app.ImageInputSelectionDropdown.ValueIndex);
+                if isprop(app.Cam, 'Timeout')
+                    app.Cam.Timeout = 10;
                 end
             end
             app.LastImgFrameTime = tic();
@@ -274,7 +298,7 @@ classdef asl_app < matlab.apps.AppBase
         % =========================
         % SLIDER CALLBACKS
         % =========================
-        function ConfThreshSliderChanged(app, ~)
+        function ConfThreshSliderChanged(app)
             app.MinConfidence = app.ConfThreshSlider.Value / 100;
             app.ConfThreshLabel.Text = sprintf('Min Confidence: %d%%', round(app.ConfThreshSlider.Value));
             app.GapThreshSlider.Limits = [-100, 100];
@@ -285,7 +309,7 @@ classdef asl_app < matlab.apps.AppBase
             app.ConfGauge.ScaleColorLimits = [0, app.ConfThreshSlider.Value+app.GapThreshSlider.Value+0.0001; app.ConfThreshSlider.Value+app.GapThreshSlider.Value-0.0001, app.ConfThreshSlider.Value; app.ConfThreshSlider.Value-0.0001, 100];
         end
 
-        function GapThreshSliderChanged(app, ~)
+        function GapThreshSliderChanged(app)
             if app.GapThreshSlider.Value > 0
                 app.GapThreshSlider.Value = 0;
             end
@@ -322,7 +346,6 @@ classdef asl_app < matlab.apps.AppBase
             while app.IsRunning && isvalid(app.UIFigure)
                 
                 img = app.getImage();
-                
                 [h, w, ~] = size(img);
 
                 boxSize = min([app.targetBoxSize, h, w]);
@@ -340,7 +363,7 @@ classdef asl_app < matlab.apps.AppBase
                 if isempty(app.Net) || isempty(app.NetInputSize)
                     app.boxColor = 'white';
                     app.clearTop5Display()
-                    app.StatusLabel.Text = 'Load a network from the toolbar to begin.';
+                    app.StatusLabel.Text = 'Load a network to begin.';
                     app.ConfGauge.Value = 0;
                     app.CurrentCharLabel.Text = '-';
 
@@ -414,20 +437,29 @@ classdef asl_app < matlab.apps.AppBase
                 end
 
                 % --- D. Update UI ---
+                delete(app.ImageAxes.Children);
                 imgDisplay = insertShape(img, 'Rectangle', rect, 'LineWidth', 6, 'Color', app.boxColor);
-                imshow(imgDisplay, 'Parent', app.ImageAxes);
+                imgSize = size(imgDisplay,[2,1]);
+                axisSize = app.ImageAxes.InnerPosition([3,4]);
+                outputImgSize = axisSize*min(imgSize./axisSize);
+                imgDisplay = imcrop(imgDisplay, [(imgSize-outputImgSize)/2,outputImgSize]);
+                image('XData',[0,axisSize(1)],'YData',[axisSize(2),0],'CData',imgDisplay,'Parent', app.ImageAxes);
                 
-                drawnow limitrate;
+                drawnow();
+                
             end
-
+                
             % After While Loop Finishes - Delete App
             if ~isempty(app.Cam)
                 delete(app.Cam);
                 app.Cam = [];
             end
+
             if isvalid(app.UIFigure)
                 delete(app.UIFigure);
             end
+
+            delete(app);
         end
 
         % =========================
@@ -450,7 +482,7 @@ classdef asl_app < matlab.apps.AppBase
             end
         end
 
-        function DeleteButtonPushed(app, ~)
+        function DeleteButtonPushed(app)
             currentTxt = char(app.SentenceText);
             if ~isempty(currentTxt)
                 app.SentenceText = string(currentTxt(1:end-1));
@@ -458,8 +490,82 @@ classdef asl_app < matlab.apps.AppBase
             end
         end
 
-        function UIFigureCloseRequest(app, ~)
+        function CopyButtonPushed(app)
+            clipboard('copy',app.SentenceLabel.Text);
+        end
+
+        function UIFigureCloseRequest(app)
             app.IsRunning = false;
+        end
+
+        % =========================
+        % UI RESIZE
+        % =========================
+        function UIResize(app,~,~)
+            pause(0.1);
+            size=app.UIFigure.InnerPosition([3,4]);
+
+            % Define column geometry
+            col1_2_w_ratio = (size(1)-250)/(340+490);
+            col1_x = 5;  
+            col1_w = col1_2_w_ratio*340;
+            col2_x = col1_w+col1_x+5; 
+            col2_w = col1_2_w_ratio*490;
+            col3_x = size(1)-230-5; 
+            col3_w = 230;
+            base_y = 5;
+            panel_h = size(2)-10;
+
+            % === LEFT PANEL: Reference chart & Output ===
+            app.ChartPanel.Position = [col1_x base_y col1_w panel_h];
+            img_width = col1_w-10;
+            img_height = img_width*487/630;
+            app.ChartImage.Position = [5, panel_h-25-img_height, img_width, img_height];
+            app.SentenceLabel.Position = [5, 60, img_width, panel_h-60-img_height-25-5];
+
+            button_width = ((col1_w-20)/3);
+            app.SpaceButton.Position = [5, 5, button_width, 50];
+            app.DeleteButton.Position = [button_width+10, 5, button_width, 50];
+            app.CopyButton.Position = [button_width*2+15, 5, button_width, 50];
+
+            % === MIDDLE PANEL: Camera ===
+            app.CamPanel.Position = [col2_x, base_y, col2_w, panel_h];
+            app.ImageInputSelectionToggleButton.Position = [5, panel_h-45, 100, 20];
+            app.ImageInputSelectionDropdown.Position = [110, panel_h-45, col2_w-115, 20];
+
+            delete(app.ImageAxes);
+           
+            app.ImageAxes = uiaxes(app.CamPanel);
+            app.ImageAxes.Units = 'pixels';
+            app.ImageAxes.PositionConstraint = 'innerposition';
+            app.ImageAxes.XTick = [];
+            app.ImageAxes.XTickMode = 'manual';
+            app.ImageAxes.YTick = [];
+            app.ImageAxes.YTickMode = 'manual';
+            app.ImageAxes.DataAspectRatioMode = 'auto';
+            app.ImageAxes.PlotBoxAspectRatioMode = 'auto';
+            app.ImageAxes.XLimMode = 'auto';
+            app.ImageAxes.YLimMode = 'auto';
+            app.ImageAxes.XLimitMethod = 'tight';
+            app.ImageAxes.YLimitMethod = 'tight';
+            app.ImageAxes.Color = [0.95,0.95,0.95];
+            colorbar(app.ImageAxes,'off');
+            app.ImageAxes.InnerPosition = [5, 5, col2_w-10, panel_h-55];
+
+            % === RIGHT PANEL: Results & controls ===
+            app.ResultsPanel.Position = [col3_x, base_y, col3_w, panel_h];
+            app.CurrentCharLabel.Position = [10 490 200 100];
+            app.ConfGauge.Position = [8, 435, col3_w-16, 40];
+            app.GaugeLabel.Position = [5, 405, col3_w-10, 25];
+            app.Top5Label.Position = [10, 380, col3_w-20, 25];
+            app.Top5List.Position = [5, 255, col3_w-10, 120];
+            app.ConfThreshLabel.Position = [5, 225, col3_w-10, 25];
+            app.ConfThreshSlider.Position = [15, 215, col3_w-30, 3];
+            app.GapThreshLabel.Position = [5, 165, col3_w-10, 25];
+            app.GapThreshSlider.Position = [15, 155, col3_w-30, 3];
+            app.StatusLabel.Position = [10, 55, col3_w-20, 55];
+            app.NewNetSelectionButton.Position = [5, 30, col3_w-10, 20];
+            app.NetSelectionDropdown.Position = [5, 5, col3_w-10, 20];
         end
     end
 
@@ -468,42 +574,20 @@ classdef asl_app < matlab.apps.AppBase
         % CREATE COMPONENTS
         % =========================
         function createComponents(app)
+            % === FIGURE ===
             app.UIFigure = uifigure('Visible', 'off');
-            app.UIFigure.Position = [50 50 1100 650];
+            app.UIFigure.Position = [0, 0, 1280, 720];
             app.UIFigure.Name = 'ASL Translator';
-            app.UIFigure.Resize = 'off';
+            app.UIFigure.Resize = 'on';
+            app.UIFigure.AutoResizeChildren = 'off';
             app.UIFigure.Color = [0.92 0.93 0.94];
-            app.UIFigure.CloseRequestFcn = createCallbackFcn(app, @UIFigureCloseRequest, true);
+            app.UIFigure.CloseRequestFcn = createCallbackFcn(app, @UIFigureCloseRequest, false);
             app.UIFigure.KeyPressFcn = createCallbackFcn(app, @KeyPressed, true);
+            app.UIFigure.SizeChangedFcn = createCallbackFcn(app, @UIResize, false);
 
-            % === TOOLBAR ===
-            app.Toolbar = uitoolbar(app.UIFigure);
-
-            icon = zeros(16,16,3);
-            icon(:,:,2) = 0.6;
-            icon(3:14,3:14,:) = 0.9;
-
-            app.LoadNetTool = uipushtool(app.Toolbar);
-            app.LoadNetTool.Tooltip= 'Load Network (.mat)';
-            app.LoadNetTool.Icon = icon;
-            app.LoadNetTool.ClickedCallback = @app.LoadNetToolClicked;
-
-            app.ImageInputSelectionDropdown = uitoggletool(app.Toolbar);
-            app.ImageInputSelectionDropdown.Icon = icon;
-            app.ImageInputSelectionDropdown.Tooltip = 'on=webcam,off=video';
-            app.ImageInputSelectionDropdown.ClickedCallback = @app.InputChoiceUpdated;
-            app.ImageInputSelectionDropdown.State = 'on';
-
-            % Define column geometry
-            col1_x = 10;  col1_w = 340;
-            col2_x = 360; col2_w = 490;
-            col3_x = 860; col3_w = 230;
-            base_y = 10; panel_h = 630;
-
-            % === LEFT PANEL: Reference chart ===
+            % === LEFT PANEL: Reference chart & Output ===
             app.ChartPanel = uipanel(app.UIFigure);
             app.ChartPanel.Title = 'Reference Chart & Output';
-            app.ChartPanel.Position = [col1_x base_y col1_w panel_h];
 
             imagePath = 'asl_chart.jpeg';
             if ~exist(imagePath, 'file')
@@ -512,14 +596,10 @@ classdef asl_app < matlab.apps.AppBase
             end
 
             app.ChartImage = uiimage(app.ChartPanel);
-            img_width = col1_w-10;
-            img_height = img_width*487/630;
-            app.ChartImage.Position = [5, panel_h-25-img_height, img_width, img_height];
             app.ChartImage.ImageSource = imagePath;
             app.ChartImage.ScaleMethod = 'fit';
 
             app.SentenceLabel = uilabel(app.ChartPanel);
-            app.SentenceLabel.Position = [5, 60, img_width, panel_h-60-img_height-25-5];
             app.SentenceLabel.Text = '';                   
             app.SentenceLabel.BackgroundColor = 'white';
             app.SentenceLabel.FontSize = 24;
@@ -527,69 +607,65 @@ classdef asl_app < matlab.apps.AppBase
             app.SentenceLabel.VerticalAlignment = 'bottom';
             app.SentenceLabel.WordWrap = 'on';
 
-            button_width = (col1_w/2)-10;
-
             app.SpaceButton = uibutton(app.ChartPanel, 'push');
-            app.SpaceButton.Position = [5, 5, button_width, 50];
             app.SpaceButton.Text = 'SPACE';
             app.SpaceButton.FontSize = 16;
-            app.SpaceButton.ButtonPushedFcn = createCallbackFcn(app, @(src,event)app.appendToSentence(" "), true);
+            app.SpaceButton.ButtonPushedFcn = createCallbackFcn(app, @(~,~)app.appendToSentence(" "), false);
 
             app.DeleteButton = uibutton(app.ChartPanel, 'push');
-            app.DeleteButton.Position = [button_width+15, 5, button_width, 50];
             app.DeleteButton.Text = 'BACKSPACE';
             app.DeleteButton.FontSize = 16;
-            app.DeleteButton.ButtonPushedFcn = createCallbackFcn(app, @DeleteButtonPushed, true);
+            app.DeleteButton.ButtonPushedFcn = createCallbackFcn(app, @DeleteButtonPushed, false);
+
+            app.CopyButton = uibutton(app.ChartPanel, 'push');
+            app.CopyButton.Text = 'COPY';
+            app.CopyButton.FontSize = 16;
+            app.CopyButton.ButtonPushedFcn = createCallbackFcn(app, @CopyButtonPushed, false);
 
             % === MIDDLE PANEL: Camera ===
             app.CamPanel = uipanel(app.UIFigure);
             app.CamPanel.Title = 'Live Input';
-            app.CamPanel.Position = [col2_x, base_y, col2_w, panel_h];
 
             app.ImageAxes = uiaxes(app.CamPanel);
-            app.ImageAxes.Position = [5, 5, col2_w+9, panel_h-15];
-            app.ImageAxes.XTick = [];
-            app.ImageAxes.XTickMode = 'manual';
-            app.ImageAxes.YTick = [];
-            app.ImageAxes.YTickMode = 'manual';
-            app.ImageAxes.DataAspectRatio = [1,1,1];
-            app.ImageAxes.DataAspectRatioMode = 'manual';
-            app.ImageAxes.Color = [0.95,0.95,0.95];
-            colorbar(app.ImageAxes,'off');
+
+            app.ImageInputSelectionToggleButton = uibutton(app.CamPanel, 'state');
+            app.ImageInputSelectionToggleButton.ValueChangedFcn = createCallbackFcn(app, @InputChoiceToggleUpdated, false);
+            app.ImageInputSelectionToggleButton.Text = 'Webcam';
+            app.ImageInputSelectionToggleButton.Value = false;
+
+            app.ImageInputSelectionDropdown = uidropdown(app.CamPanel);
+            app.ImageInputSelectionDropdown.Items = {'No Cameras Found'};
+            app.ImageInputSelectionDropdown.ValueChangedFcn = createCallbackFcn(app, @InputChoiceDropdownUpdated, false);
+            app.ImageInputSelectionDropdown.DropDownOpeningFcn = createCallbackFcn(app, @InputChoiceDropdownUpdated, false);
+            app.ImageInputSelectionDropdown.Value = 'No Cameras Found';
 
             % === RIGHT PANEL: Results & controls ===
             app.ResultsPanel = uipanel(app.UIFigure);
             app.ResultsPanel.Title = 'Real-Time Analysis';
-            app.ResultsPanel.Position = [col3_x, base_y, col3_w, panel_h];
 
             app.CurrentCharLabel = uilabel(app.ResultsPanel);
-            app.CurrentCharLabel.Position = [10 490 200 100];
             app.CurrentCharLabel.Text = '-';
             app.CurrentCharLabel.FontSize = 90;
             app.CurrentCharLabel.FontWeight = 'bold';
             app.CurrentCharLabel.HorizontalAlignment = 'center';
 
             app.ConfGauge = uigauge(app.ResultsPanel, 'linear');
-            app.ConfGauge.Position = [8, 435, col3_w-16, 40];
             app.ConfGauge.Limits = [0 100];
             app.ConfGauge.ScaleColors = [0.8 0 0; 1 0.8 0; 0 0.6 0];
-            app.ConfGauge.ScaleColorLimits = [0 40; 40 70; 70 100];
+            app.ConfGauge.ScaleColorLimits = [0 30; 30 70; 70 100];
 
             app.GaugeLabel = uilabel(app.ResultsPanel);
-            app.GaugeLabel.Position = [5, 405, col3_w-10, 25];
             app.GaugeLabel.Text = 'Confidence %';
             app.GaugeLabel.HorizontalAlignment = 'center';
             app.GaugeLabel.VerticalAlignment = 'top';
 
             app.Top5Label = uilabel(app.ResultsPanel);
-            app.Top5Label.Position = [10, 380, col3_w-20, 25];
             app.Top5Label.Text = 'Top 5 Predictions';
             app.Top5Label.FontWeight = 'bold';
             app.Top5Label.HorizontalAlignment = 'center';
             app.Top5Label.VerticalAlignment = 'bottom';
 
             app.Top5List = uilabel(app.ResultsPanel);
-            app.Top5List.Position = [5, 255, col3_w-10, 120];
             app.Top5List.Text = '-';
             app.Top5List.FontSize = 14;
             app.Top5List.FontName = 'Consolas';
@@ -598,32 +674,27 @@ classdef asl_app < matlab.apps.AppBase
 
             % Confidence threshold slider
             app.ConfThreshLabel = uilabel(app.ResultsPanel);
-            app.ConfThreshLabel.Position = [5, 225, col3_w-10, 25];
             app.ConfThreshLabel.Text = 'Min Confidence: 70%';
             app.ConfThreshLabel.HorizontalAlignment = 'center';
             app.ConfThreshLabel.VerticalAlignment = 'bottom';
 
             app.ConfThreshSlider = uislider(app.ResultsPanel);
-            app.ConfThreshSlider.Position = [15, 215, col3_w-30, 3];
             app.ConfThreshSlider.Limits = [0 100];
             app.ConfThreshSlider.Value = 70;
-            app.ConfThreshSlider.ValueChangedFcn = createCallbackFcn(app, @ConfThreshSliderChanged, true);
+            app.ConfThreshSlider.ValueChangedFcn = createCallbackFcn(app, @ConfThreshSliderChanged, false);
 
             % Gap threshold slider
             app.GapThreshLabel = uilabel(app.ResultsPanel);
-            app.GapThreshLabel.Position = [5, 165, col3_w-10, 25];
             app.GapThreshLabel.Text = 'Min Gap: 40%';
             app.GapThreshLabel.HorizontalAlignment = 'center';
             app.GapThreshLabel.VerticalAlignment = 'bottom';
 
             app.GapThreshSlider = uislider(app.ResultsPanel);
-            app.GapThreshSlider.Position = [15, 155, col3_w-30, 3];
             app.GapThreshSlider.Limits = [-70 30];
             app.GapThreshSlider.Value = -40;
-            app.GapThreshSlider.ValueChangedFcn = createCallbackFcn(app, @GapThreshSliderChanged, true);
+            app.GapThreshSlider.ValueChangedFcn = createCallbackFcn(app, @GapThreshSliderChanged, false);
 
             app.StatusLabel = uilabel(app.ResultsPanel);
-            app.StatusLabel.Position = [10, 5, col3_w-20, 100];
             app.StatusLabel.Text = ' ';
             app.StatusLabel.HorizontalAlignment = 'center';
             app.StatusLabel.WordWrap = 'on';
@@ -631,6 +702,16 @@ classdef asl_app < matlab.apps.AppBase
             app.StatusLabel.FontAngle = 'italic';
             app.StatusLabel.VerticalAlignment = 'top';
 
+            app.NewNetSelectionButton = uibutton(app.ResultsPanel);
+            app.NewNetSelectionButton.ButtonPushedFcn = createCallbackFcn(app, @LoadNetButtonClicked, false);
+            app.NewNetSelectionButton.Text = 'Load New Net';
+
+            app.NetSelectionDropdown = uidropdown(app.ResultsPanel);
+            app.NetSelectionDropdown.Items = {'No Net Loaded'};
+            app.NetSelectionDropdown.ValueChangedFcn = createCallbackFcn(app, @NetSelectionUpdated, false);
+            app.NetSelectionDropdown.Value = 'No Net Loaded';
+    
+            %app.UIResize();
             app.UIFigure.Visible = 'on';
         end
     end
@@ -640,22 +721,9 @@ classdef asl_app < matlab.apps.AppBase
         % CONSTRUCTOR
         % =========================
         function app = asl_app
-            createComponents(app)
-            registerApp(app, app.UIFigure)
-            runStartupFcn(app, @startupFcn)
-        end
-
-        function delete(app)
-            if ~isempty(app.Cam)
-                try
-                    delete(app.Cam);
-                catch
-                end
-                app.Cam = [];
-            end
-            if ~isempty(app.UIFigure) && isvalid(app.UIFigure)
-                delete(app.UIFigure)
-            end
+            createComponents(app);
+            registerApp(app, app.UIFigure);
+            runStartupFcn(app, @startupFcn);
         end
     end
 end
