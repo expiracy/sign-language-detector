@@ -58,10 +58,11 @@ classdef asl_app < matlab.apps.AppBase
         InputVideoLoaded
         LastImgFrameTime
         LoadedVideoFiles
+        VideoPlaceholderImg
 
         % Configurable thresholds
         MinConfidence       double = 0.7
-        MinScoreDiff        double = 0.3
+        MinScoreDiff        double = 0.4
         targetBoxSize       uint64 = 450
         PREDICTION_INTERVAL double = 1.0
         MAX_CAPTURE_RETRIES uint64 = 3
@@ -96,6 +97,13 @@ classdef asl_app < matlab.apps.AppBase
             app.InputVideoLoaded = false;
             app.LoadedVideoFiles = {'Load New...'};
             app.LastImgFrameTime = tic();
+
+            imagePath = 'PlaceHolderImg.png';
+            if ~exist(imagePath, 'file')
+                imwrite(zeros(300,300,3)+0.9, 'PlaceHolderImg_placeholder.png');
+                imagePath = 'PlaceHolderImg_placeholder.png';
+            end
+            app.VideoPlaceholderImg = fliplr(imread(imagePath));
 
             % Start loop
             drawnow
@@ -175,7 +183,7 @@ classdef asl_app < matlab.apps.AppBase
                 else
                     app.StatusLabel.Text = 'Video Not Loaded.';
                     pause(1.0);
-                    img = imread('peppers.png');
+                    img = app.VideoPlaceholderImg;
                 end
             end
 
@@ -410,28 +418,33 @@ classdef asl_app < matlab.apps.AppBase
                             app.boxColor = 'green';
                             app.CurrentCharLabel.FontColor = 'green';
                             app.StatusLabel.Text = ['Locked: ' currentChar];
+                            app.CurrentCharLabel.Text = currentChar;
                         else
                             % Update status based on current state
                             if meetsThreshold && ~isDifferentChar
                                 app.boxColor = 'cyan';
+                                app.CurrentCharLabel.FontColor = 'cyan';
                                 app.StatusLabel.Text = sprintf('Same as last (%s)', app.LastLockedChar);
+                                app.CurrentCharLabel.Text = currentChar;
                             elseif meetsThreshold
                                 app.boxColor = 'cyan';
                                 app.StatusLabel.Text = 'Ready...';
-                                app.CurrentCharLabel.FontColor = '#e38902';
-                            elseif maxScore < app.MinConfidence
+                                app.CurrentCharLabel.FontColor = 'cyan';
+                                app.CurrentCharLabel.Text = currentChar;
+                            elseif maxScore < (app.MinConfidence-app.MinScoreDiff)
                                 app.LastLockedChar = '-';
                                 app.boxColor = 'red';
-                                app.CurrentCharLabel.FontColor = '#e38902';
+                                app.CurrentCharLabel.FontColor =  'red';
                                 app.StatusLabel.Text = sprintf('Conf: %.0f%% (need %.0f%%)', maxScore * 100, app.MinConfidence * 100);
+                                app.CurrentCharLabel.Text = '-';
                             else
                                 app.boxColor = 'yellow';
-                                app.CurrentCharLabel.FontColor = '#e38902';
+                                app.CurrentCharLabel.FontColor = 'yellow';
                                 app.StatusLabel.Text = sprintf('Gap: %.0f%% (need %.0f%%)', scoreDiff * 100, app.MinScoreDiff * 100);
+                                app.CurrentCharLabel.Text = currentChar;
                             end
                         end
-    
-                        app.CurrentCharLabel.Text = currentChar;
+  
                         app.ConfGauge.Value = maxScore * 100;
                     end
                 end
