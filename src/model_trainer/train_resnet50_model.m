@@ -7,7 +7,7 @@ parallel.gpu.enableCUDAForwardCompatibility(true);
 %% SECTION 1: Create Output Directory
 fprintf('[Step 1] Creating Output Directory...\n');
 
-outputDir = fullfile(pwd, 'outputs', datestr(now, 'yyyy-mm-dd_HH-MM-SS'));
+outputDir = fullfile(pwd, 'outputs', 'resnet50_', datestr(now, 'yyyy-mm-dd_HH-MM-SS'));
 if ~exist(outputDir, 'dir')
     mkdir(outputDir);
 end
