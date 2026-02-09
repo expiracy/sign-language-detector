@@ -130,7 +130,7 @@ classdef data_video_collector < matlab.apps.AppBase
             userName = regexprep(userName, '\s+', '_');
             
             % Create folder
-            rootFolder = fullfile(pwd, ['ASL_DATA_', userName]);
+            rootFolder = fullfile(pwd, ['data/test/video/', userName]);
             if ~exist(rootFolder, 'dir')
                 mkdir(rootFolder);
             end
@@ -179,7 +179,7 @@ classdef data_video_collector < matlab.apps.AppBase
             % Save timestamps to CSV
             userName = strtrim(app.NameEdit.Value);
             userName = regexprep(userName, '\s+', '_');
-            rootFolder = fullfile(pwd, ['ASL_DATA_', userName]);
+            rootFolder = fullfile(pwd, ['data/test/video/', userName]);
             csvFileName = sprintf('ASL_Timestamps_%s_%s.csv', userName, string(app.IDEdit.Value));
             csvFilePath = fullfile(rootFolder, csvFileName);
             

@@ -7,7 +7,7 @@ parallel.gpu.enableCUDAForwardCompatibility(true);
 %% SECTION 1: Create Output Directory
 fprintf('[Step 1] Creating Output Directory...\n');
 
-outputDir = fullfile(pwd, 'outputs', datestr(now, 'yyyy-mm-dd_HH-MM-SS'));
+outputDir = fullfile(pwd, 'outputs', 'resnet18_', datestr(now, 'yyyy-mm-dd_HH-MM-SS'));
 if ~exist(outputDir, 'dir')
     mkdir(outputDir);
 end
@@ -170,5 +170,5 @@ fprintf('   > Confusion matrix saved.\n');
 %% SECTION 10: Save Trained Network
 fprintf('[Step 10] Saving Trained Network...\n');
 
-save(fullfile(outputDir, 'trained_network.mat'), 'trainedNet');
+save(fullfile(outputDir, 'resnet18.mat'), 'trainedNet');
 fprintf('   > Trained network saved.\n');
