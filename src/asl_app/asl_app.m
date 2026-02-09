@@ -10,7 +10,7 @@ classdef asl_app < matlab.apps.AppBase
         SentenceLabel   matlab.ui.control.Label
         SpaceButton     matlab.ui.control.Button
         DeleteButton    matlab.ui.control.Button
-        CopyButton    matlab.ui.control.Button
+        CopyButton      matlab.ui.control.Button
 
         % --- Middle Panel (Camera & Sentence) ---
         CamPanel        matlab.ui.container.Panel
@@ -196,6 +196,7 @@ classdef asl_app < matlab.apps.AppBase
         % =========================
         function LoadNetButtonClicked(app)
             [file, path] = uigetfile({'*.mat','MAT-files (*.mat)'}, 'Select a trained network');
+            focus(app.UIFigure);
             if isequal(file, 0)
                 return;
             end
@@ -283,6 +284,7 @@ classdef asl_app < matlab.apps.AppBase
             if app.ImageInputSelectionToggleButton.Value
                 if strcmp(app.ImageInputSelectionDropdown.Value,'Load New...')
                     [file, path] = uigetfile('*','Video Selection');
+                    focus(app.UIFigure);
                     if isequal(file, 0)
                         return;
                     end
@@ -492,6 +494,10 @@ classdef asl_app < matlab.apps.AppBase
                     app.appendToSentence(" ");
                 case 'backspace'
                     app.DeleteButtonPushed();
+                case {'j','J'}
+                    app.appendToSentence("J");
+                case {'z','Z'}
+                    app.appendToSentence("Z");
             end
         end
 
