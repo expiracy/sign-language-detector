@@ -167,5 +167,5 @@ fprintf('   > Confusion matrix saved.\n');
 %% SECTION 10: Save Trained Network
 fprintf('[Step 10] Saving Trained Network...\n');
 
-save(fullfile(outputDir, 'trained_network.mat'), 'trainedNet');
+save(fullfile(outputDir, 'googlenet.mat'), 'trainedNet');
 fprintf('   > Trained network saved.\n');

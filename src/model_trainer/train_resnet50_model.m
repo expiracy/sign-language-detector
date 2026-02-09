@@ -66,6 +66,7 @@ fprintf('     - Validation Images: %d\n', length(imdsValidation.Files));
 fprintf('[Step 4] Loading ResNet-50 Architecture...\n');
 try
     net = resnet50;
+    analyzeNetwork(resnet50);
     fprintf('   > ResNet-50 loaded successfully.\n');
 catch
     error('CRITICAL ERROR: ResNet-50 not found. Please install "Deep Learning Toolbox Model for ResNet-50 Network".');
@@ -167,5 +168,5 @@ fprintf('   > Confusion matrix saved.\n');
 %% SECTION 10: Save Trained Network
 fprintf('[Step 10] Saving Trained Network...\n');
 
-save(fullfile(outputDir, 'trained_network.mat'), 'trainedNet');
+save(fullfile(outputDir, 'resnet50.mat'), 'trainedNet');
 fprintf('   > Trained network saved.\n');
