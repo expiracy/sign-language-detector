@@ -1,6 +1,5 @@
 classdef data_collector < matlab.apps.AppBase
 
-    % Properties that correspond to app components
     properties (Access = public)
         UIFigure      matlab.ui.Figure
         ChartImage    matlab.ui.control.Image 
@@ -21,20 +20,18 @@ classdef data_collector < matlab.apps.AppBase
         Instruction   matlab.ui.control.Label
     end
 
-    % Properties for App Logic
     properties (Access = private)
-        Cam             % Webcam object
-        IsCapturing     % Flag for loop
-        CurrentCount    % Session tracker
+        Cam
+        IsCapturing
+        CurrentCount
         
-        % TIMING PROPERTIES (New)
-        SessionTimer    % Stores the 'tic' start time
-        LastCaptureTime % Stores the time (in seconds) the last photo was taken
+        % Timing Properties
+        SessionTimer 
+        LastCaptureTime
     end
 
     methods (Access = private)
 
-        % Main startup function
         function startupFcn(app)
             % 1. Setup Camera
             try
@@ -45,9 +42,9 @@ classdef data_collector < matlab.apps.AppBase
                 return;
             end
             
-            % 2. Initialize Timer for Debouncing (0.25s delay)
+            % 2. Initialise Timer for Debouncing (0.25s delay)
             app.SessionTimer = tic; 
-            app.LastCaptureTime = -1; % Set to negative so first photo works immediately
+            app.LastCaptureTime = -1;
             
             % 3. Start the live preview loop
             app.IsCapturing = true;
@@ -56,7 +53,6 @@ classdef data_collector < matlab.apps.AppBase
 
         % Loop to update camera feed on the Axes
         function updatePreviewLoop(app)
-            % Target box size (same as asl_app)
             targetBoxSize = 450;
             
             while app.IsCapturing && isvalid(app.UIFigure)
@@ -65,13 +61,13 @@ classdef data_collector < matlab.apps.AppBase
                     img = fliplr(img); % Mirror view
                     [h, w, ~] = size(img);
                     
-                    % Calculate centre crop rectangle (same as asl_app)
+                    % Calculate centre crop rectangle
                     boxSize = min([targetBoxSize, h, w]);
                     x = round((w - boxSize)/2); if x < 1, x = 1; end
                     y = round((h - boxSize)/2); if y < 1, y = 1; end
                     rect = [x, y, boxSize-1, boxSize-1];
                     
-                    % Draw yellow rectangle to show hand placement area
+                    % Hand placement area
                     imgDisplay = insertShape(img, 'Rectangle', rect, 'LineWidth', 4, 'Color', 'yellow');
                     
                     image(app.ImageAxes, imgDisplay);
@@ -92,22 +88,21 @@ classdef data_collector < matlab.apps.AppBase
                  return;
             end
             
-            % --- DEBOUNCE CHECK (New) ---
+            % Debounce Check
             currentTime = toc(app.SessionTimer);
             if (currentTime - app.LastCaptureTime) < 0.25
-                % If less than 0.25 seconds have passed, IGNORE this click
                 return; 
             end
             % Update the last capture time
             app.LastCaptureTime = currentTime;
 
-            % --- VALIDATION ---
+            % Validation
             
             % 1. Validate Name
             userName = strtrim(app.NameEdit.Value);
             if isempty(userName)
                 app.StatusLabel.Text = 'Error: Please enter your Name.';
-                app.StatusLabel.FontColor = [1 0 0]; % Red
+                app.StatusLabel.FontColor = [1 0 0];
                 return;
             end
             userName = regexprep(userName, '\s+', '_');
@@ -116,14 +111,14 @@ classdef data_collector < matlab.apps.AppBase
             targetChar = upper(strtrim(app.CharEdit.Value));
             if isempty(targetChar) || length(targetChar) > 1 || targetChar < 'A' || targetChar > 'Z'
                 app.StatusLabel.Text = 'Error: Please enter a single letter (A-Z).';
-                app.StatusLabel.FontColor = [1 0 0]; % Red
+                app.StatusLabel.FontColor = [1 0 0];
                 return;
             end
             
             % 3. Get Current ID
             currentID = app.IDEdit.Value;
             
-            % --- FOLDER CONSTRUCTION --fr-
+            % Folder Saving
             
             % Root: ASL_DATA_NAME / LETTER
             rootFolder = fullfile(pwd, ['data/datasets_v2/ASL_DATA_', userName]);
@@ -133,25 +128,24 @@ classdef data_collector < matlab.apps.AppBase
                 mkdir(savePath);
             end
             
-            % --- CAPTURE & SAVE ---
+            % Capture and Save
             
             % Generate Filename: Character_Name_ID.jpg
             fileNameStr = sprintf('%s_%s_%d.jpg', targetChar, userName, currentID);
             fullFilePath = fullfile(savePath, fileNameStr);
             
-            % Check if file exists (Safety check)
             if exist(fullFilePath, 'file')
                 app.StatusLabel.Text = ['Warning: ID ' num2str(currentID) ' already exists! Overwriting...'];
-                app.StatusLabel.FontColor = [1 0.5 0]; % Orange
-                pause(0.1); % Small pause for readability
+                app.StatusLabel.FontColor = [1 0.5 0];
+                pause(0.1);
             end
 
-            % Process Image - capture the region inside the rectangle (same as asl_app)
+            % Process Image - captures the region inside the rectangle
             img = snapshot(app.Cam);
             imgFlipped = fliplr(img);
             [h, w, ~] = size(imgFlipped);
             
-            % Calculate centre crop rectangle (same as asl_app)
+            % Calculate centre crop rectangle
             targetBoxSize = 450;
             boxSize = min([targetBoxSize, h, w]);
             x = round((w - boxSize)/2); if x < 1, x = 1; end
@@ -163,7 +157,7 @@ classdef data_collector < matlab.apps.AppBase
             imgResized = imresize(imgCropped, [224, 224]); 
             imwrite(imgResized, fullFilePath);
             
-            % --- UI FEEDBACK & UPDATES ---
+            % UI Feedback and Updates
             
             % Flash Green
             app.ImageAxes.XColor = 'green';
@@ -174,7 +168,7 @@ classdef data_collector < matlab.apps.AppBase
             app.CurrentCount = app.CurrentCount + 1;
             app.CountLabel.Text = "Session Count: " + app.CurrentCount;
             
-            % Increment ID for NEXT photo
+            % Increment ID for next photo
             app.IDEdit.Value = currentID + 1;
             
             % Update Status
@@ -188,7 +182,7 @@ classdef data_collector < matlab.apps.AppBase
             app.ImageAxes.LineWidth = 0.5;
         end
 
-        % --- Callbacks ---
+        % Callbacks
 
         function UIFigureWindowKeyPress(app, event)
             if strcmp(event.Key, 'space')
@@ -210,18 +204,18 @@ classdef data_collector < matlab.apps.AppBase
         end
     end
 
-    % App Layout Initialization
+    % App Layout Initialisation
     methods (Access = public)
         function createComponents(app)
             % Create UIFigure
             app.UIFigure = uifigure('Visible', 'off');
             app.UIFigure.Position = [100 100 900 550]; 
-            app.UIFigure.Name = 'ASL Data Collector V5 (with Delay)';
+            app.UIFigure.Name = 'ASL Data Collector';
             app.UIFigure.Color = [0.94 0.94 0.94];
             app.UIFigure.WindowKeyPressFcn = createCallbackFcn(app, @UIFigureWindowKeyPress, true);
             app.UIFigure.CloseRequestFcn = createCallbackFcn(app, @UIFigureCloseRequest, true);
 
-            % --- Left Panel: ASL Chart ---
+            %Left Panel: ASL Chart
             imagePath = 'asl_chart.jpeg'; 
             if ~exist(imagePath, 'file')
                  dummyImg = zeros(400,400,3) + 0.9;
@@ -235,7 +229,7 @@ classdef data_collector < matlab.apps.AppBase
             app.ChartImage.ImageSource = imagePath;
             app.ChartImage.ScaleMethod = 'fit';
 
-            % --- Right Panel: Camera & Controls ---
+            % Right Panel: Camera & Controls
             
             app.ImageAxes = uiaxes(app.UIFigure);
             app.ImageAxes.Position = [500 230 350 300];
