@@ -171,6 +171,7 @@ classdef asl_app < matlab.apps.AppBase
                         img = imread('peppers.png');
                     end
                 end
+                img = fliplr(img);
             else
                 if app.InputVideoLoaded
                     while toc(app.LastImgFrameTime)<1/app.InputVideoReader.FrameRate
@@ -187,7 +188,6 @@ classdef asl_app < matlab.apps.AppBase
                 end
             end
 
-            img = fliplr(img);
             app.LastImgFrameTime = tic();
         end
 
