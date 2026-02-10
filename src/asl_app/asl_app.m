@@ -37,14 +37,13 @@ classdef asl_app < matlab.apps.AppBase
     properties (Access = private)
         Cam             % Webcam object
         Net             % The trained AI network (SeriesNetwork or DAGNetwork)
-        NetInputSize    double = []   % cached [H W]
+        NetInputSize    double = []   % cached [H, W]
         NetDisplayName  string = ""   % selected file name
         IsRunning       % Loop flag
 
         % Properties for "Lock-in" logic
-        SentenceText    string  % Accumulates the formed sentence
         LastLockedChar  char    % The last character that was locked in
-        boxColor
+        boxColor                % Cached box color
 
         % Prediction timing
         LastPredictionTime  uint64  % Timer for prediction interval
@@ -54,18 +53,17 @@ classdef asl_app < matlab.apps.AppBase
         LastScoreDiff       double  % Difference between top two predictions
 
         % Video Input
-        InputVideoReader
-        InputVideoLoaded
-        LastImgFrameTime
-        LoadedVideoFiles
+        InputVideoReader    % Reader for video input
+        InputVideoLoaded    % Video flag 
+        LastImgFrameTime    % Timer function
+        LoadedImgInputFiles % Cashed file addresses for drop down UI
         VideoPlaceholderImg
 
         % Configurable thresholds
-        MinConfidence       double = 0.7
-        MinScoreDiff        double = 0.4
-        targetBoxSize       uint64 = 450
-        PREDICTION_INTERVAL double = 1.0
-        MAX_CAPTURE_RETRIES uint64 = 3
+        MinConfidence       double = 0.7    % threshold for lock-in logic
+        MinScoreDiff        double = 0.4    % threshold for lock-in logic
+        PredictionInterval  double = 1.0    % threshold for period between predictions
+        MaxCaptureRetries   uint64 = 3      % threshold for webcam error
     end
 
     methods (Access = private)
@@ -74,28 +72,23 @@ classdef asl_app < matlab.apps.AppBase
         % STARTUP
         % =========================
         function startupFcn(app)
-            % Initialise state variables
-            app.SentenceText = "";
+            CleanupObj = onCleanup(@()app.ForceClose());
+            app.SentenceLabel.Text = '';
             app.LastLockedChar = '';
 
-            % Initialise prediction timing
             app.LastPredictionTime = tic;
             app.LastPredictedChar = '-';
             app.LastPredictedScore = 0;
             app.LastScores = [];
             app.LastScoreDiff = 0;
 
-            % Do not load a fixed network file anymore
             app.Net = [];
             app.NetInputSize = [];
-
-            % Start camera with timeout configuration
-            app.InputChoiceToggleUpdated()
 
             app.IsRunning = true;
 
             app.InputVideoLoaded = false;
-            app.LoadedVideoFiles = {'Load New...'};
+            app.LoadedImgInputFiles = {'Load New...'};
             app.LastImgFrameTime = tic();
 
             imagePath = 'PlaceHolderImg.png';
@@ -105,7 +98,8 @@ classdef asl_app < matlab.apps.AppBase
             end
             app.VideoPlaceholderImg = fliplr(imread(imagePath));
 
-            % Start loop
+            app.InputChoiceToggleUpdated();
+
             drawnow
             app.recognitionLoop();
         end
@@ -113,47 +107,23 @@ classdef asl_app < matlab.apps.AppBase
         % =========================
         % Image Aquisition Helpers
         % =========================
-        function success = reconnectCamera(app)
-            try
-                % Release existing camera
-                if ~isempty(app.Cam)
-                    delete(app.Cam);
-                    app.Cam = [];
-                end
-                pause(1.0);
-                
-                % Attempt to reconnect
-                app.Cam = webcam;
-                if isprop(app.Cam, 'Timeout')
-                    app.Cam.Timeout = 10;
-                end
-                
-                app.StatusLabel.Text = 'Camera reconnected.';
-                success = true;
-            catch
-                app.StatusLabel.Text = 'Camera reconnection failed.';
-                success = false;
-            end
-        end
-
         function img = getImage(app)
 
             if ~app.ImageInputSelectionToggleButton.Value
                 captureSuccess = false;
                 
-                for attempt = 1:app.MAX_CAPTURE_RETRIES
+                for attempt = 1:app.MaxCaptureRetries
                     try
                         img = snapshot(app.Cam);
                         captureSuccess = true;
                         break;
                     catch
-                        if attempt < app.MAX_CAPTURE_RETRIES
+                        if attempt < app.MaxCaptureRetries
                             pause(0.2);
                         end
                     end
                 end
                 
-                % If all retries failed, attempt camera reconnection
                 if ~captureSuccess
                     app.StatusLabel.Text = 'Camera timeout. Reconnecting...';
                     
@@ -162,7 +132,6 @@ classdef asl_app < matlab.apps.AppBase
                         pause(2.0);
                     end
                     
-                    % Try one more capture after reconnection
                     try
                         img = snapshot(app.Cam);
                     catch
@@ -190,6 +159,27 @@ classdef asl_app < matlab.apps.AppBase
 
             app.LastImgFrameTime = tic();
         end
+        
+        function success = reconnectCamera(app)
+            try
+                if ~isempty(app.Cam)
+                    delete(app.Cam);
+                    app.Cam = [];
+                end
+                pause(1.0);
+                
+                app.Cam = webcam;
+                if isprop(app.Cam, 'Timeout')
+                    app.Cam.Timeout = 10;
+                end
+                
+                app.StatusLabel.Text = 'Camera reconnected.';
+                success = true;
+            catch
+                app.StatusLabel.Text = 'Camera reconnection failed.';
+                success = false;
+            end
+        end
 
         % =========================
         % INPUT SELECTION CALLBACKS
@@ -213,14 +203,42 @@ classdef asl_app < matlab.apps.AppBase
             if ~strcmp(fullPath,'No Net Loaded')
                 try
                     data = load(fullPath);
-                    [net, ~] = app.findNetworkInLoadedStruct(data);
-    
+
+                    net = NaN;
+                    varNames = fieldnames(data);
+                    for i = 1:numel(varNames)
+                        v = data.(varNames{i});
+                        if isa(v, 'SeriesNetwork') || isa(v, 'DAGNetwork') || isa(v, 'dlnetwork')
+                            net = v;
+                            break;
+                        end
+                    end
+                    
+                    if isequal(net, NaN)
+                        error("No neural network found in the selected .mat file.");
+                    end
+
                     if ~(isa(net, 'SeriesNetwork') || isa(net, 'DAGNetwork'))
                         error('Unsupported network type. Save a SeriesNetwork or DAGNetwork.');
                     end
     
                     app.Net = net;
-                    app.NetInputSize = app.getNetInputSize(net);
+                    app.NetInputSize = NaN;
+
+                    layers = net.Layers;
+                    for i = 1:numel(layers)
+                        if isprop(layers(i), 'InputSize')
+                            sz = layers(i).InputSize;
+                            if numel(sz) >= 2
+                                app.NetInputSize = sz(1:2);
+                                break;
+                            end
+                        end
+                    end
+        
+                    if isequal(app.NetInputSize, NaN)
+                        error("Could not find an InputSize in the network layers.");
+                    end
     
                     % Reset state when loading a new network
                     app.LastLockedChar = '';
@@ -232,52 +250,30 @@ classdef asl_app < matlab.apps.AppBase
                 end
             end
         end
-
-        function [net, netVarName] = findNetworkInLoadedStruct(~, data)
-            varNames = fieldnames(data);
-            for i = 1:numel(varNames)
-                v = data.(varNames{i});
-                if isa(v, 'SeriesNetwork') || isa(v, 'DAGNetwork') || isa(v, 'dlnetwork')
-                    net = v;
-                    netVarName = string(varNames{i});
-                    return;
-                end
-            end
-
-            error("No neural network found in the selected .mat file.");
-        end
-
-        function inputSize = getNetInputSize(~, net)
-            layers = net.Layers;
-            for i = 1:numel(layers)
-                if isprop(layers(i), 'InputSize')
-                    sz = layers(i).InputSize;
-                    if numel(sz) >= 2
-                        inputSize = sz(1:2);
-                        return;
-                    end
-                end
-            end
-            error("Could not find an InputSize in the network layers.");
-        end
-
         
         function InputChoiceToggleUpdated(app)                                              
             if app.ImageInputSelectionToggleButton.Value
                 app.ImageInputSelectionToggleButton.Text = 'Video';
-                app.ImageInputSelectionDropdown.Items = app.LoadedVideoFiles;
+                app.ImageInputSelectionDropdown.Items = app.LoadedImgInputFiles;
+                app.InputChoiceDropdownUpdated();
             else
                 app.ImageInputSelectionToggleButton.Text = 'Webcam';
                 app.InputVideoLoaded = false;
                 try
                     app.ImageInputSelectionDropdown.Items = webcamlist();
-                catch
-                    uiconfirm(app.UIFigure, 'No webcam found. Connect one and retry.', 'Camera Error','Options',{'OK'});
-                    app.ImageInputSelectionToggleButton.Value = True;
+                    app.InputChoiceDropdownUpdated();
+                catch error
+                    switch error.identifier
+                        case 'MATLAB:UndefinedFunction'
+                            warning("Please install the 'MATLAB Support Package for USB Webcams'. This add-on is required to use the Camera feature of this app!");
+                            uiconfirm(app.UIFigure, "'MATLAB Support Package for USB Webcams' not installed. Install and retry to use camera.", 'Camera Error','Options',{'OK'});
+                        otherwise
+                            uiconfirm(app.UIFigure, 'No webcam found. Connect one and retry to use camera.', 'Camera Error','Options',{'OK'});
+                    end
+                    app.ImageInputSelectionToggleButton.Value = true;
                     app.InputChoiceToggleUpdated();
                 end
             end
-            app.InputChoiceDropdownUpdated();
         end
 
         function InputChoiceDropdownUpdated(app)                                              
@@ -289,8 +285,8 @@ classdef asl_app < matlab.apps.AppBase
                         return;
                     end
                     fullPath = fullfile(path, file);
-                    app.LoadedVideoFiles = [{fullPath}; app.LoadedVideoFiles];
-                    app.ImageInputSelectionDropdown.Items = app.LoadedVideoFiles;
+                    app.LoadedImgInputFiles = [{fullPath}; app.LoadedImgInputFiles];
+                    app.ImageInputSelectionDropdown.Items = app.LoadedImgInputFiles;
                     app.ImageInputSelectionDropdown.Value = fullPath;
                 end
 
@@ -358,7 +354,7 @@ classdef asl_app < matlab.apps.AppBase
                 img = app.getImage();
                 [h, w, ~] = size(img);
 
-                boxSize = min([app.targetBoxSize, h, w]);
+                boxSize = min([450, h, w]);
                 x = round((w - boxSize)/2);
                 if x < 1
                     x = 1;
@@ -369,7 +365,6 @@ classdef asl_app < matlab.apps.AppBase
                 end
                 rect = [x, y, boxSize-1, boxSize-1];
 
-                % --- B. Classification (only every app.PREDICTION_INTERVAL seconds) ---
                 if isempty(app.Net) || isempty(app.NetInputSize)
                     app.boxColor = 'white';
                     app.clearTop5Display()
@@ -380,12 +375,11 @@ classdef asl_app < matlab.apps.AppBase
                 else
                     timeSincePrediction = toc(app.LastPredictionTime);
     
-                    if timeSincePrediction >= app.PREDICTION_INTERVAL
+                    if timeSincePrediction >= app.PredictionInterval
                         imgHand = imcrop(img, rect);
                         imgResized = imresize(imgHand, app.NetInputSize);
                         [labelCat, scores] = classify(app.Net, imgResized);
     
-                        % Sort scores to get top two
                         sortedScores = sort(scores, 'descend');
                         topScore = sortedScores(1);
                         secondScore = sortedScores(2);
@@ -396,33 +390,27 @@ classdef asl_app < matlab.apps.AppBase
                         app.LastScoreDiff = topScore - secondScore;
                         app.LastPredictionTime = tic;
     
-                        % Update top 5 display
                         classNames = app.Net.Layers(end).Classes;
                         app.updateTop5Display(scores, classNames);
                         
-                        % Use cached values
                         maxScore = app.LastPredictedScore;
                         currentChar = app.LastPredictedChar;
                         scoreDiff = app.LastScoreDiff;
         
-                        % Check if lock-in conditions are met
                         meetsThreshold = (maxScore >= app.MinConfidence) && (scoreDiff >= app.MinScoreDiff);
                         
                         isDifferentChar = ~strcmp(currentChar, app.LastLockedChar);
                         
                         canLockIn = meetsThreshold && isDifferentChar;
         
-                        % --- C. Automatic lock-in ---    
                         if canLockIn && ~isempty(currentChar) && currentChar ~= '-'
-                            % Automatically lock in the letter
-                            app.appendToSentence(currentChar);
+                            app.SentenceLabel.Text = [app.SentenceLabel.Text, currentChar];
                             app.LastLockedChar = currentChar;
                             app.boxColor = 'green';
                             app.CurrentCharLabel.FontColor = 'green';
                             app.StatusLabel.Text = ['Locked: ' currentChar];
                             app.CurrentCharLabel.Text = currentChar;
                         else
-                            % Update status based on current state
                             if meetsThreshold && ~isDifferentChar
                                 app.boxColor = 'cyan';
                                 app.CurrentCharLabel.FontColor = 'cyan';
@@ -451,7 +439,6 @@ classdef asl_app < matlab.apps.AppBase
                     end
                 end
 
-                % --- D. Update UI ---
                 delete(app.ImageAxes.Children);
                 imgDisplay = insertShape(img, 'Rectangle', rect, 'LineWidth', 6, 'Color', app.boxColor);
                 imgSize = size(imgDisplay,[2,1]);
@@ -463,26 +450,6 @@ classdef asl_app < matlab.apps.AppBase
                 drawnow();
                 
             end
-                
-            % After While Loop Finishes - Delete App
-            if ~isempty(app.Cam)
-                delete(app.Cam);
-                app.Cam = [];
-            end
-
-            if isvalid(app.UIFigure)
-                delete(app.UIFigure);
-            end
-
-            delete(app);
-        end
-
-        % =========================
-        % SENTENCE HELPERS
-        % =========================
-        function appendToSentence(app, charToAdd)
-            app.SentenceText = app.SentenceText + charToAdd;
-            app.SentenceLabel.Text = app.SentenceText;
         end
 
         % =========================
@@ -491,22 +458,25 @@ classdef asl_app < matlab.apps.AppBase
         function KeyPressed(app, event)
             switch event.Key
                 case 'space'
-                    app.appendToSentence(" ");
+                    app.SentenceLabel.Text = [app.SentenceLabel.Text, ' '];
                 case 'backspace'
                     app.DeleteButtonPushed();
                 case {'j','J'}
-                    app.appendToSentence("J");
+                    app.SentenceLabel.Text = [app.SentenceLabel.Text, 'J'];
                 case {'z','Z'}
-                    app.appendToSentence("Z");
+                    app.SentenceLabel.Text = [app.SentenceLabel.Text, 'Z'];
             end
         end
 
         function DeleteButtonPushed(app)
-            currentTxt = char(app.SentenceText);
+            currentTxt = char(app.SentenceLabel.Text);
             if ~isempty(currentTxt)
-                app.SentenceText = string(currentTxt(1:end-1));
-                app.SentenceLabel.Text = app.SentenceText;
+                app.SentenceLabel.Text = string(currentTxt(1:end-1));
             end
+        end
+
+        function SpaceButtonPushed(app)
+            app.SentenceLabel.Text = [app.SentenceLabel.Text, ' '];
         end
 
         function CopyButtonPushed(app)
@@ -515,6 +485,27 @@ classdef asl_app < matlab.apps.AppBase
 
         function UIFigureCloseRequest(app)
             app.IsRunning = false;
+        end
+
+        function CloseApp(app)
+            if isvalid(app)
+                if ~isempty(app.Cam)
+                    delete(app.Cam);
+                    app.Cam = [];
+                end
+    
+                if isvalid(app.UIFigure)
+                    delete(app.UIFigure);
+                end
+    
+                delete(app);
+            end
+        end
+
+        function ForceClose(app)
+            app.UIFigureCloseRequest();
+            pause(0.25);
+            app.CloseApp();
         end
 
         % =========================
@@ -573,7 +564,7 @@ classdef asl_app < matlab.apps.AppBase
 
             % === RIGHT PANEL: Results & controls ===
             app.ResultsPanel.Position = [col3_x, base_y, col3_w, panel_h];
-            app.CurrentCharLabel.Position = [10 490 200 100];
+            app.CurrentCharLabel.Position = [10 500 200 100];
             app.ConfGauge.Position = [8, 435, col3_w-16, 40];
             app.GaugeLabel.Position = [5, 405, col3_w-10, 25];
             app.Top5Label.Position = [10, 380, col3_w-20, 25];
@@ -595,7 +586,13 @@ classdef asl_app < matlab.apps.AppBase
         function createComponents(app)
             % === FIGURE ===
             app.UIFigure = uifigure('Visible', 'off');
-            app.UIFigure.Position = [0, 0, 1280, 720];
+            set(0,'units','pixels');
+            outputSize = [1500,900];
+            dispSize = get(0,'screensize');
+            if outputSize(1) > dispSize(3) || outputSize(2) > dispSize(4)
+                outputSize = [1280,720];
+            end
+            app.UIFigure.Position = [((dispSize([3,4])-outputSize)/2), outputSize];
             app.UIFigure.Name = 'ASL Translator';
             app.UIFigure.Resize = 'on';
             app.UIFigure.AutoResizeChildren = 'off';
@@ -629,7 +626,7 @@ classdef asl_app < matlab.apps.AppBase
             app.SpaceButton = uibutton(app.ChartPanel, 'push');
             app.SpaceButton.Text = 'SPACE';
             app.SpaceButton.FontSize = 16;
-            app.SpaceButton.ButtonPushedFcn = createCallbackFcn(app, @(~,~)app.appendToSentence(" "), false);
+            app.SpaceButton.ButtonPushedFcn = createCallbackFcn(app, @SpaceButtonPushed, false);
 
             app.DeleteButton = uibutton(app.ChartPanel, 'push');
             app.DeleteButton.Text = 'BACKSPACE';
@@ -691,7 +688,6 @@ classdef asl_app < matlab.apps.AppBase
             app.Top5List.VerticalAlignment = 'top';
             app.Top5List.BackgroundColor = [0.95 0.95 0.95];
 
-            % Confidence threshold slider
             app.ConfThreshLabel = uilabel(app.ResultsPanel);
             app.ConfThreshLabel.Text = 'Min Confidence: 70%';
             app.ConfThreshLabel.HorizontalAlignment = 'center';
@@ -702,7 +698,6 @@ classdef asl_app < matlab.apps.AppBase
             app.ConfThreshSlider.Value = 70;
             app.ConfThreshSlider.ValueChangedFcn = createCallbackFcn(app, @ConfThreshSliderChanged, false);
 
-            % Gap threshold slider
             app.GapThreshLabel = uilabel(app.ResultsPanel);
             app.GapThreshLabel.Text = 'Min Gap: 40%';
             app.GapThreshLabel.HorizontalAlignment = 'center';
@@ -730,7 +725,6 @@ classdef asl_app < matlab.apps.AppBase
             app.NetSelectionDropdown.ValueChangedFcn = createCallbackFcn(app, @NetSelectionUpdated, false);
             app.NetSelectionDropdown.Value = 'No Net Loaded';
     
-            %app.UIResize();
             app.UIFigure.Visible = 'on';
         end
     end
