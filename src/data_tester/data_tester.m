@@ -77,6 +77,7 @@ classdef data_tester < matlab.apps.AppBase
                 app.NetInputSize = app.getNetInputSize(net);
                 
                 % Update UI
+                [~, fname, ~] = fileparts(fullPath);
                 app.LoadedNetworkLabel.Text = fullPath;
                 app.NetworkNameEditField.Value = fname;
                 app.ModelNameResultLabel.Text = ['Model: ' fullPath];
@@ -615,6 +616,28 @@ classdef data_tester < matlab.apps.AppBase
                 'EdgeColor', 'none', ...
                 'FontSize', 10, ...
                 'HorizontalAlignment', 'center');
+            
+            % Save to tests folder
+            try
+                % Determine project root (../../ from this file)
+                [thisPath, ~, ~] = fileparts(mfilename('fullpath'));
+                projectRoot = fileparts(fileparts(thisPath));
+                testsFolder = fullfile(projectRoot, 'outputs', 'tests');
+                
+                if ~exist(testsFolder, 'dir')
+                    mkdir(testsFolder);
+                end
+                
+                % Clean filename
+                safeName = regexprep(netName, '[\\/:*?"<>|]', '_');
+                savePath = fullfile(testsFolder, [safeName '.png']);
+                
+                saveas(fig, savePath);
+                fprintf('Saved confusion matrix: %s\n', savePath);
+                app.StatusLabel.Text = ['Saved: ' safeName '.png'];
+            catch outputErr
+                warning(outputErr.message);
+            end
             
             % Debug print
             fprintf('\n=== Matrix details ===\n');
