@@ -77,10 +77,9 @@ classdef data_tester < matlab.apps.AppBase
                 app.NetInputSize = app.getNetInputSize(net);
                 
                 % Update UI
-                [~, fname, ~] = fileparts(fullPath);
-                app.LoadedNetworkLabel.Text = fname;
+                app.LoadedNetworkLabel.Text = fullPath;
                 app.NetworkNameEditField.Value = fname;
-                app.ModelNameResultLabel.Text = ['Model: ' fname];
+                app.ModelNameResultLabel.Text = ['Model: ' fullPath];
                 
                 app.StatusLabel.Text = 'Network loaded.';
                 app.StatusLabel.FontColor = [0 1 0];
