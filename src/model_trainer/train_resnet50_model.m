@@ -19,6 +19,7 @@ fprintf('Loading data...\n');
 datasetPath = fullfile(pwd, 'data/datasets_v2/'); 
 
 if ~exist(datasetPath, 'dir')
+    % If the hardcoded path is wrong, look in the current folder
     fprintf('Warning: folder not found at: %s\n', datasetPath);
     fprintf('Scanning current directory...\n');
     datasetPath = pwd; 
@@ -39,6 +40,7 @@ fprintf('Filtering data (A-Z only)...\n');
 labelCounts = countEachLabel(imds);
 allLabels = labelCounts.Label;
 
+% Only keeping folders named A-Z. Ignoring "nothing", "del", "space", etc.
 hasEnoughData = labelCounts.Count > 50;
 isLetterAZ = arrayfun(@(x) ~isempty(regexp(char(x), '^[A-Z]$', 'once')), allLabels);
 
@@ -57,6 +59,7 @@ imds = subset(imds, filesToKeep);
 
 imds.Labels = removecats(imds.Labels);
 
+% Standard 80/20 split. 80% for training, 20% to check if it actually works.
 [imdsTrain, imdsValidation] = splitEachLabel(imds, 0.8, 'randomized');
 fprintf('Data split completed:\n');
 fprintf(' - Training:   %d\n', length(imdsTrain.Files));
@@ -84,23 +87,27 @@ fprintf('Target classes: %d\n', numClasses);
 if numClasses < 2
     error('Error: Fewer than 2 classes found.');
 end
-
+% Replacing the last 3 layers. The original model was built for 1000 classes (ImageNet),
+% but we only need it for our specific ASL letters.
 layersToRemove = {'fc1000', 'fc1000_softmax', 'ClassificationLayer_fc1000'};
 lgraph = removeLayers(lgraph, layersToRemove);
 
 newLayers = [
     fullyConnectedLayer(numClasses, ...
         'Name', 'new_fc', ...
-        'WeightLearnRateFactor', 10, ...
+        'WeightLearnRateFactor', 10, ... % Learn faster on the new layer
         'BiasLearnRateFactor', 10)
     softmaxLayer('Name', 'softmax')
     classificationLayer('Name', 'classoutput')];
 
 lgraph = addLayers(lgraph, newLayers);
+% Hook up the new layers to the end of the existing network
 lgraph = connectLayers(lgraph, 'avg_pool', 'new_fc');
 fprintf('New layers attached.\n');
 
 %% SECTION 6: Data Augmentation
+fprintf('Configuring data augmentation...\n');
+% Randomly rotate, scale, and shift images so the model doesn't just memorize exact pixels.
 fprintf('Configuring data augmentation...\n');
 augmenter = imageDataAugmenter( ...
     'RandXTranslation', [-30 30], ...  

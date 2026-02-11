@@ -19,6 +19,7 @@ fprintf('Loading data...\n');
 datasetPath = fullfile(pwd, 'data/datasets_v2/'); 
 
 if ~exist(datasetPath, 'dir')
+    % If the hardcoded path is wrong, look in the current folder
     fprintf('Warning: folder not found at: %s\n', datasetPath);
     fprintf('Scanning current directory...\n');
     datasetPath = pwd; 
@@ -39,6 +40,7 @@ fprintf('Filtering data (A-Z only)...\n');
 labelCounts = countEachLabel(imds);
 allLabels = labelCounts.Label;
 
+% Only keeping folders named A-Z. Ignoring "nothing", "del", "space", etc.
 hasEnoughData = labelCounts.Count > 50;
 isLetterAZ = arrayfun(@(x) ~isempty(regexp(char(x), '^[A-Z]$', 'once')), allLabels);
 
@@ -56,6 +58,7 @@ filesToKeep = ismember(imds.Labels, validLabels);
 imds = subset(imds, filesToKeep);
 
 imds.Labels = removecats(imds.Labels);
+% Standard 80/20 split. 80% for training, 20% to check if it actually works.
 
 [imdsTrain, imdsValidation] = splitEachLabel(imds, 0.8, 'randomized');
 fprintf('Data split completed:\n');
