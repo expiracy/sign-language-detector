@@ -23,6 +23,8 @@ classdef data_tester < matlab.apps.AppBase
         TestInputFormatButtonGroup     matlab.ui.container.ButtonGroup
         ImageFolderButton              matlab.ui.control.RadioButton
         VideoCSVButton                 matlab.ui.control.RadioButton
+        FolderPairsButton              matlab.ui.control.RadioButton
+        FoundFilesListBox              matlab.ui.control.ListBox
     end
 
     
@@ -33,6 +35,9 @@ classdef data_tester < matlab.apps.AppBase
         csvPath
         imageFolderPath
         modelPath
+
+        % Found pairs for batch processing
+        foundPairs = struct('csv', {}, 'mp4', {})
 
         % Processed data
         frames          % Cell array of images
@@ -143,10 +148,20 @@ classdef data_tester < matlab.apps.AppBase
             app.StatusLabel.FontColor = [0 1 0];
         end
 
-        function loadVideoData(app)
+        function loadVideoData(app, videoPathArg, csvPathArg, appendData)
+            if nargin < 4
+                 appendData = false;
+            end
+            if nargin < 3
+                 csvPathArg = app.csvPath;
+            end
+            if nargin < 2
+                 videoPathArg = app.videoPath;
+            end
+
             try
                 % Read CSV
-                data = readtable(app.csvPath);
+                data = readtable(csvPathArg);
                 
                 % Validate CSV format
                 requiredCols = {'Letter', 'StartFrame', 'EndFrame'};
@@ -161,13 +176,15 @@ classdef data_tester < matlab.apps.AppBase
                 end
                 
                 % Open video
-                if ~isfile(app.videoPath)
-                    error('Video file not found: %s', app.videoPath);
+                if ~isfile(videoPathArg)
+                    error('Video file not found: %s', videoPathArg);
                 end
-                vid = VideoReader(app.videoPath);
+                vid = VideoReader(videoPathArg);
                 
-                app.frames = {};
-                app.trueLabels = {};
+                if ~appendData
+                    app.frames = {};
+                    app.trueLabels = {};
+                end
                 
                 app.StatusLabel.Text = 'Loading video frames...';
                 drawnow;
@@ -201,8 +218,7 @@ classdef data_tester < matlab.apps.AppBase
                     error('No frames were loaded from the video!');
                 end
                 
-                app.StatusLabel.Text = sprintf('Loaded %d frames from %d letters', ...
-                    length(app.frames), height(data));
+                app.StatusLabel.Text = sprintf('Loaded %d frames total', length(app.frames));
                 app.StatusLabel.FontColor = [0 1 0];
                 
             catch ME
@@ -326,13 +342,8 @@ classdef data_tester < matlab.apps.AppBase
             % Initialize with Video mode selected
             app.VideoCSVButton.Value = true;
             
-            % Set initial visibility
-            app.UploadVideoButton.Visible = 'on';
-            app.UploadCSVButton.Visible = 'on';
-            app.CSVFileLabel.Visible = 'on';
-            
-            app.SelectImageFolderButton.Visible = 'off';
-            app.ExpectedLetterDropDown.Visible = 'off';
+            % Trigger the selection change callback to set initial visibility correctly
+            TestInputFormatButtonGroupSelectionChanged(app, []);
             
             % Initialize status
             app.StatusLabel.Text = 'Ready - Select input type and load network';
@@ -365,12 +376,64 @@ classdef data_tester < matlab.apps.AppBase
 
         % Button pushed function: SelectImageFolderButton
         function SelectImageFolderButtonPushed(app, event)
-            folder = uigetdir(pwd, 'Select Image Folder');
+            folder = uigetdir(pwd, 'Select Folder');
             if folder ~= 0
                 app.imageFolderPath = folder;
 
-                app.FileLabel.Text = folder;
-                app.SelectImageFolderButton.FontColor = [0 1 0];
+                if app.FolderPairsButton.Value
+                    app.FileLabel.Text = folder; % Show folder path
+                    app.SelectImageFolderButton.FontColor = [0 1 0];
+                    
+                    % Scan for pairs
+                    app.StatusLabel.Text = 'Scanning for file pairs...';
+                    drawnow;
+                    
+                    % Find CSV files matching pattern
+                    csvFiles = dir(fullfile(app.imageFolderPath, '*.csv'));
+                    app.foundPairs = struct('csv', {}, 'mp4', {});
+                    listBoxItems = {};
+                    
+                    for i = 1:length(csvFiles)
+                        csvName = csvFiles(i).name;
+                        % Check if it matches pattern *_<number>.csv
+                        tokens = regexp(csvName, '(.*)_(\d+)\.csv$', 'tokens');
+                        if isempty(tokens)
+                            continue;
+                        end
+                        
+                        numberPart = tokens{1}{2};
+                        
+                        % Look for matching MP4: *_<number>.mp4
+                        mp4Files = dir(fullfile(app.imageFolderPath, sprintf('*_%s.mp4', numberPart)));
+                        
+                        if ~isempty(mp4Files)
+                            mp4Name = mp4Files(1).name;
+                            
+                            % Store pair
+                            app.foundPairs(end+1).csv = fullfile(app.imageFolderPath, csvName);
+                            app.foundPairs(end).mp4 = fullfile(app.imageFolderPath, mp4Name);
+                            
+                            % Add to display list
+                            listBoxItems{end+1} = sprintf('%s  <-->  %s', csvName, mp4Name);
+                        end
+                    end
+                    
+                    app.FoundFilesListBox.Items = listBoxItems;
+                    
+                    if isempty(app.foundPairs)
+                        app.StatusLabel.Text = 'No matching pairs found in folder.';
+                        app.StatusLabel.FontColor = [1 0 0];
+                    else
+                        app.StatusLabel.Text = sprintf('Found %d pairs.', length(app.foundPairs));
+                        app.StatusLabel.FontColor = [0 1 0];
+                    end
+                    
+                else
+                    % Standard image folder mode
+                    app.FileLabel.Text = folder;
+                    app.SelectImageFolderButton.FontColor = [0 1 0];
+                    app.StatusLabel.Text = 'Image folder selected.';
+                end
             end
         end
 
@@ -396,6 +459,36 @@ classdef data_tester < matlab.apps.AppBase
                         return;
                     end
                     loadVideoData(app);
+                    
+                elseif app.FolderPairsButton.Value
+                    if isempty(app.foundPairs)
+                        uialert(app.UIFigure, 'No data pairs found! Select a valid folder first.', 'Error');
+                        return;
+                    end
+                    
+                    app.StatusLabel.Text = 'Processing pairs...';
+                    drawnow;
+                    
+                    app.frames = {};
+                    app.trueLabels = {};
+                    
+                    filesLoaded = 0;
+                    
+                    for i = 1:length(app.foundPairs)
+                        try
+                            loadVideoData(app, app.foundPairs(i).mp4, app.foundPairs(i).csv, true);
+                            filesLoaded = filesLoaded + 1;
+                        catch ME
+                            warning('Failed to load pair %d: %s', i, ME.message);
+                        end
+                    end
+                    
+                    if filesLoaded == 0
+                         error('Failed to load any of the found pairs.');
+                    end
+                    
+                    app.StatusLabel.Text = sprintf('Loaded data from %d file pairs', filesLoaded);
+                    
                 else
                     if isempty(app.imageFolderPath)
                         uialert(app.UIFigure, 'Please select an image folder!', 'Error');
@@ -503,22 +596,42 @@ classdef data_tester < matlab.apps.AppBase
             selectedButton = app.TestInputFormatButtonGroup.SelectedObject;
     
             if selectedButton == app.VideoCSVButton
-                % Show video + CSV controls, hide image folder controls
+                % Show video + CSV controls
                 app.UploadVideoButton.Visible = 'on';
                 app.UploadCSVButton.Visible = 'on';
                 app.CSVFileLabel.Visible = 'on';
                 
+                % Hide folder controls
                 app.SelectImageFolderButton.Visible = 'off';
                 app.ExpectedLetterDropDown.Visible = 'off';
+                app.ExpectedLetterDropDown_2Label.Visible = 'off';
+                app.FoundFilesListBox.Visible = 'off';
                 
-            else % ImageFolderRadioButton
-                % Show image folder controls, hide video + CSV controls
+            elseif selectedButton == app.FolderPairsButton
+                % Show folder selection & listbox
+                app.SelectImageFolderButton.Visible = 'on';
+                app.SelectImageFolderButton.Text = 'Select Data Folder';
+                app.FoundFilesListBox.Visible = 'on';
+                
+                % Hide others
                 app.UploadVideoButton.Visible = 'off';
                 app.UploadCSVButton.Visible = 'off';
                 app.CSVFileLabel.Visible = 'off';
-                
+                app.ExpectedLetterDropDown.Visible = 'off';
+                app.ExpectedLetterDropDown_2Label.Visible = 'off';
+
+            else % ImageFolderButton
+                % Show image folder controls
                 app.SelectImageFolderButton.Visible = 'on';
+                app.SelectImageFolderButton.Text = 'Select Image Folder';
                 app.ExpectedLetterDropDown.Visible = 'on';
+                app.ExpectedLetterDropDown_2Label.Visible = 'on';
+                
+                % Hide others
+                app.UploadVideoButton.Visible = 'off';
+                app.UploadCSVButton.Visible = 'off';
+                app.CSVFileLabel.Visible = 'off';
+                app.FoundFilesListBox.Visible = 'off';
             end
         end
 
@@ -546,121 +659,150 @@ classdef data_tester < matlab.apps.AppBase
 
             % Create UIFigure and hide until all components are created
             app.UIFigure = uifigure('Visible', 'off');
-            app.UIFigure.Position = [100 100 402 339];
-            app.UIFigure.Name = 'MATLAB App';
+            app.UIFigure.Position = [100 100 640 540];
+            app.UIFigure.Name = 'ASL Data Tester';
 
-            % Create InputPanel
-            app.InputPanel = uipanel(app.UIFigure);
-            app.InputPanel.Title = 'Input';
-            app.InputPanel.Position = [13 36 215 295];
+            % Main Grid Layout
+            mainGrid = uigridlayout(app.UIFigure);
+            mainGrid.ColumnWidth = {'1.5x', '1x'}; 
+            mainGrid.RowHeight = {'1x', 30};
 
-            % Create TestInputFormatButtonGroup
-            app.TestInputFormatButtonGroup = uibuttongroup(app.InputPanel);
+            % -- Input Panel --
+            app.InputPanel = uipanel(mainGrid);
+            app.InputPanel.Title = 'Input Configuration';
+            app.InputPanel.Layout.Row = 1;
+            app.InputPanel.Layout.Column = 1;
+
+            % Input Grid Layout
+            inputGrid = uigridlayout(app.InputPanel);
+            inputGrid.ColumnWidth = {'1x', '1x'};
+            % Rows: 1:Mode, 2:Video/Folder, 3:CSV/Letter, 4:Listbox, 5:LoadNet, 6:Eval
+            inputGrid.RowHeight = {80, 40, 40, '1x', 40, 50}; 
+
+            % 1. Input Format Group (Absolute within Grid Cell)
+            app.TestInputFormatButtonGroup = uibuttongroup(inputGrid);
             app.TestInputFormatButtonGroup.SelectionChangedFcn = createCallbackFcn(app, @TestInputFormatButtonGroupSelectionChanged, true);
-            app.TestInputFormatButtonGroup.TitlePosition = 'centertop';
             app.TestInputFormatButtonGroup.Title = 'Test Input Format';
-            app.TestInputFormatButtonGroup.Position = [8 195 123 70];
+            app.TestInputFormatButtonGroup.Layout.Row = 1;
+            app.TestInputFormatButtonGroup.Layout.Column = [1 2];
 
-            % Create VideoCSVButton
+            % Radio Buttons (Manual positioning relative to Group)
             app.VideoCSVButton = uiradiobutton(app.TestInputFormatButtonGroup);
             app.VideoCSVButton.Text = 'Video + CSV';
-            app.VideoCSVButton.Position = [11 24 91 22];
+            app.VideoCSVButton.Position = [10 35 100 22];
             app.VideoCSVButton.Value = true;
 
-            % Create ImageFolderButton
+            app.FolderPairsButton = uiradiobutton(app.TestInputFormatButtonGroup);
+            app.FolderPairsButton.Text = 'Folder of Pairs';
+            app.FolderPairsButton.Position = [120 35 110 22];
+
             app.ImageFolderButton = uiradiobutton(app.TestInputFormatButtonGroup);
             app.ImageFolderButton.Text = 'Image Folder';
-            app.ImageFolderButton.Position = [11 2 93 22];
+            app.ImageFolderButton.Position = [10 10 100 22];
 
-            % Create UploadVideoButton
-            app.UploadVideoButton = uibutton(app.InputPanel, 'push');
-            app.UploadVideoButton.ButtonPushedFcn = createCallbackFcn(app, @UploadVideoButtonPushed, true);
-            app.UploadVideoButton.Position = [10 166 100 23];
+            % 2. File Selection Row (Overlapped cells)
+            app.UploadVideoButton = uibutton(inputGrid, 'push');
             app.UploadVideoButton.Text = 'Upload Video';
+            app.UploadVideoButton.Layout.Row = 2;
+            app.UploadVideoButton.Layout.Column = 1;
+            app.UploadVideoButton.ButtonPushedFcn = createCallbackFcn(app, @UploadVideoButtonPushed, true);
 
-            % Create SelectImageFolderButton
-            app.SelectImageFolderButton = uibutton(app.InputPanel, 'push');
+            app.SelectImageFolderButton = uibutton(inputGrid, 'push');
+            app.SelectImageFolderButton.Text = 'Select Folder';
+            app.SelectImageFolderButton.Layout.Row = 2;
+            app.SelectImageFolderButton.Layout.Column = 1;
             app.SelectImageFolderButton.ButtonPushedFcn = createCallbackFcn(app, @SelectImageFolderButtonPushed, true);
-            app.SelectImageFolderButton.Position = [10 166 122 23];
-            app.SelectImageFolderButton.Text = 'Select Image Folder';
+            app.SelectImageFolderButton.Visible = 'off';
 
-            % Create LoadNetworkButton
-            app.LoadNetworkButton = uibutton(app.InputPanel, 'push');
-            app.LoadNetworkButton.ButtonPushedFcn = createCallbackFcn(app, @LoadNetworkButtonPushed, true);
-            app.LoadNetworkButton.Position = [8 62 100 23];
-            app.LoadNetworkButton.Text = 'Load Network';
-
-            % Create RunEvaluationButton
-            app.RunEvaluationButton = uibutton(app.InputPanel, 'push');
-            app.RunEvaluationButton.ButtonPushedFcn = createCallbackFcn(app, @RunEvaluationButtonPushed, true);
-            app.RunEvaluationButton.FontSize = 18;
-            app.RunEvaluationButton.Position = [8 19 153 39];
-            app.RunEvaluationButton.Text = 'Run Evaluation';
-
-            % Create FileLabel
-            app.FileLabel = uilabel(app.InputPanel);
-            app.FileLabel.Position = [29 145 186 22];
+            app.FileLabel = uilabel(inputGrid);
             app.FileLabel.Text = '';
+            app.FileLabel.Layout.Row = 2;
+            app.FileLabel.Layout.Column = 2;
 
-            % Create ExpectedLetterDropDown_2Label
-            app.ExpectedLetterDropDown_2Label = uilabel(app.InputPanel);
-            app.ExpectedLetterDropDown_2Label.HorizontalAlignment = 'right';
-            app.ExpectedLetterDropDown_2Label.Position = [8 118 89 22];
-            app.ExpectedLetterDropDown_2Label.Text = 'Expected Letter';
-
-            % Create ExpectedLetterDropDown
-            app.ExpectedLetterDropDown = uidropdown(app.InputPanel);
-            app.ExpectedLetterDropDown.Items = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y'};
-            app.ExpectedLetterDropDown.Position = [112 118 49 22];
-            app.ExpectedLetterDropDown.Value = 'A';
-
-            % Create UploadCSVButton
-            app.UploadCSVButton = uibutton(app.InputPanel, 'push');
-            app.UploadCSVButton.ButtonPushedFcn = createCallbackFcn(app, @UploadCSVButtonPushed, true);
-            app.UploadCSVButton.Position = [8 117 100 23];
+            % 3. Secondary Input Row (CSV or Expected Letter)
+            app.UploadCSVButton = uibutton(inputGrid, 'push');
             app.UploadCSVButton.Text = 'Upload CSV';
+            app.UploadCSVButton.Layout.Row = 3;
+            app.UploadCSVButton.Layout.Column = 1;
+            app.UploadCSVButton.ButtonPushedFcn = createCallbackFcn(app, @UploadCSVButtonPushed, true);
 
-            % Create CSVFileLabel
-            app.CSVFileLabel = uilabel(app.UIFigure);
-            app.CSVFileLabel.Position = [43 130 186 22];
+            app.CSVFileLabel = uilabel(inputGrid);
             app.CSVFileLabel.Text = '';
+            app.CSVFileLabel.Layout.Row = 3;
+            app.CSVFileLabel.Layout.Column = 2;
 
-            % Create StatusLabel
-            app.StatusLabel = uilabel(app.UIFigure);
-            app.StatusLabel.Position = [14 9 487 22];
-            app.StatusLabel.Text = 'Note';
+            app.ExpectedLetterDropDown_2Label = uilabel(inputGrid);
+            app.ExpectedLetterDropDown_2Label.Text = 'Expected Letter:';
+            app.ExpectedLetterDropDown_2Label.HorizontalAlignment = 'right';
+            app.ExpectedLetterDropDown_2Label.Layout.Row = 3;
+            app.ExpectedLetterDropDown_2Label.Layout.Column = 1;
+            app.ExpectedLetterDropDown_2Label.Visible = 'off';
 
-            % Create ResultsPanel
-            app.ResultsPanel = uipanel(app.UIFigure);
+            app.ExpectedLetterDropDown = uidropdown(inputGrid);
+            app.ExpectedLetterDropDown.Items = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y'};
+            app.ExpectedLetterDropDown.Value = 'A';
+            app.ExpectedLetterDropDown.Layout.Row = 3;
+            app.ExpectedLetterDropDown.Layout.Column = 2;
+            app.ExpectedLetterDropDown.Visible = 'off';
+
+            % 4. Found Pairs List Box
+            app.FoundFilesListBox = uilistbox(inputGrid);
+            app.FoundFilesListBox.Layout.Row = 4;
+            app.FoundFilesListBox.Layout.Column = [1 2];
+            app.FoundFilesListBox.Visible = 'off';
+
+            % 5. Load Network
+            app.LoadNetworkButton = uibutton(inputGrid, 'push');
+            app.LoadNetworkButton.Text = 'Load Network';
+            app.LoadNetworkButton.Layout.Row = 5;
+            app.LoadNetworkButton.Layout.Column = [1 2];
+            app.LoadNetworkButton.ButtonPushedFcn = createCallbackFcn(app, @LoadNetworkButtonPushed, true);
+
+            % 6. Run Evaluation
+            app.RunEvaluationButton = uibutton(inputGrid, 'push');
+            app.RunEvaluationButton.Text = 'Run Evaluation';
+            app.RunEvaluationButton.FontSize = 18;
+            app.RunEvaluationButton.Layout.Row = 6;
+            app.RunEvaluationButton.Layout.Column = [1 2];
+            app.RunEvaluationButton.ButtonPushedFcn = createCallbackFcn(app, @RunEvaluationButtonPushed, true);
+
+            % -- Results Panel --
+            app.ResultsPanel = uipanel(mainGrid);
             app.ResultsPanel.Title = 'Results';
-            app.ResultsPanel.Position = [228 36 160 295];
+            app.ResultsPanel.Layout.Row = 1;
+            app.ResultsPanel.Layout.Column = 2;
 
-            % Create AccuracyLabel
-            app.AccuracyLabel = uilabel(app.ResultsPanel);
-            app.AccuracyLabel.Position = [9 242 138 22];
+            resultsGrid = uigridlayout(app.ResultsPanel);
+            resultsGrid.ColumnWidth = {'1x'};
+            resultsGrid.RowHeight = {30, 30, 30, 30, 40, '1x'};
+
+            app.AccuracyLabel = uilabel(resultsGrid);
             app.AccuracyLabel.Text = 'Accuracy:';
+            app.AccuracyLabel.Layout.Row = 1;
 
-            % Create PrecisionLabel
-            app.PrecisionLabel = uilabel(app.ResultsPanel);
-            app.PrecisionLabel.Position = [9 220 138 22];
+            app.PrecisionLabel = uilabel(resultsGrid);
             app.PrecisionLabel.Text = 'Precision:';
+            app.PrecisionLabel.Layout.Row = 2;
 
-            % Create RecallLabel
-            app.RecallLabel = uilabel(app.ResultsPanel);
-            app.RecallLabel.Position = [9 198 137 22];
+            app.RecallLabel = uilabel(resultsGrid);
             app.RecallLabel.Text = 'Recall:';
+            app.RecallLabel.Layout.Row = 3;
 
-            % Create F1ScoreLabel
-            app.F1ScoreLabel = uilabel(app.ResultsPanel);
-            app.F1ScoreLabel.Position = [9 174 138 22];
+            app.F1ScoreLabel = uilabel(resultsGrid);
             app.F1ScoreLabel.Text = 'F1-Score:';
+            app.F1ScoreLabel.Layout.Row = 4;
 
-            % Create ShowConfusionMatrixButton
-            app.ShowConfusionMatrixButton = uibutton(app.ResultsPanel, 'push');
-            app.ShowConfusionMatrixButton.ButtonPushedFcn = createCallbackFcn(app, @ShowConfusionMatrixButtonPushed, true);
-            app.ShowConfusionMatrixButton.Position = [9 136 138 23];
+            app.ShowConfusionMatrixButton = uibutton(resultsGrid, 'push');
             app.ShowConfusionMatrixButton.Text = 'Show Confusion Matrix';
+            app.ShowConfusionMatrixButton.Layout.Row = 5;
+            app.ShowConfusionMatrixButton.ButtonPushedFcn = createCallbackFcn(app, @ShowConfusionMatrixButtonPushed, true);
 
+            % -- Status Label --
+            app.StatusLabel = uilabel(mainGrid);
+            app.StatusLabel.Layout.Row = 2;
+            app.StatusLabel.Layout.Column = [1 2];
+            app.StatusLabel.Text = 'Note';
+            
             % Show the figure after all components are created
             app.UIFigure.Visible = 'on';
         end
