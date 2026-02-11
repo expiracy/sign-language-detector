@@ -1,6 +1,6 @@
 classdef data_tester < matlab.apps.AppBase
 
-    % Properties that correspond to app components
+    % App Components
     properties (Access = public)
         UIFigure                       matlab.ui.Figure
         ResultsPanel                   matlab.ui.container.Panel
@@ -38,16 +38,19 @@ classdef data_tester < matlab.apps.AppBase
 
         % Found pairs for batch processing
         foundPairs = struct('csv', {}, 'mp4', {})
+        
+        % Added UI Component
+        ClearFilesButton               matlab.ui.control.Button
 
-        % Processed data
-        frames          % Cell array of images
-        trueLabels      % Cell array of true labels
-        predictions     % Cell array of predictions
+        % Data
+        frames          % Images
+        trueLabels      % Labels
+        predictions     % Predictions
 
         % Model
-        Net % The trained AI network (SeriesNetwork or DAGNetwork)
-        NetInputSize     double = [] % Expected input size [H W C]
-        NetClasses       % All classes the network knows (24 letters)
+        Net             % Network
+        NetInputSize    double = []
+        NetClasses      % Classes
 
         % Results
         confusionMat
@@ -70,11 +73,11 @@ classdef data_tester < matlab.apps.AppBase
                 app.NetInputSize = app.getNetInputSize(net);
                 
                 % Update UI
-                app.StatusLabel.Text = 'Network loaded successfully!';
+                app.StatusLabel.Text = 'Network loaded.';
                 app.StatusLabel.FontColor = [0 1 0];
                 app.LoadNetworkButton.FontColor = [0 1 0];
             catch err
-                uialert(app.UIFigure, err.message, 'Network Load Error');
+                uialert(app.UIFigure, err.message, 'Error');
             end
         end
 
@@ -111,40 +114,40 @@ classdef data_tester < matlab.apps.AppBase
 
         function runPredictions(app)
             if isempty(app.Net)
-                uialert(app.UIFigure, 'Please load a network first!', 'Error');
+                uialert(app.UIFigure, 'Load network first.', 'Error');
                 return;
             end
             
             app.predictions = {};
             numFrames = length(app.frames);
             
-            app.StatusLabel.Text = 'Running predictions...';
+            app.StatusLabel.Text = 'Predicting...';
             app.StatusLabel.FontColor = [0 0 1];
             drawnow;
             
-            % Get all 24 classes from network
+            % Get all classes
             app.NetClasses = app.Net.Layers(end).Classes;
             numClasses = length(app.NetClasses);
             
             for i = 1:numFrames
-                % Preprocess frame to match network input
+                % Preprocess frame
                 imgResized = imresize(app.frames{i}, app.NetInputSize);
                 
-                % Use classify() - this predicts against ALL 24 classes
+                % Use classify()
                 [labelCat, ~] = classify(app.Net, imgResized);
                 
-                % Store prediction (this will be one of the 24 letters)
+                % Store prediction
                 prediction = char(labelCat);
                 app.predictions{end+1} = prediction;
                 
                 % Update progress
                 if mod(i, 10) == 0
-                    app.StatusLabel.Text = sprintf('Processing... %d/%d frames', i, numFrames);
+                    app.StatusLabel.Text = sprintf('[%d/%d] Processing...', i, numFrames);
                     drawnow;
                 end
             end
             
-            app.StatusLabel.Text = 'Predictions complete!';
+            app.StatusLabel.Text = 'Predictions done.';
             app.StatusLabel.FontColor = [0 1 0];
         end
 
@@ -186,7 +189,7 @@ classdef data_tester < matlab.apps.AppBase
                     app.trueLabels = {};
                 end
                 
-                app.StatusLabel.Text = 'Loading video frames...';
+                app.StatusLabel.Text = 'Loading frames...';
                 drawnow;
                 
                 % Extract frames for each letter
@@ -215,15 +218,15 @@ classdef data_tester < matlab.apps.AppBase
                 end
                 
                 if isempty(app.frames)
-                    error('No frames were loaded from the video!');
+                    error('No frames loaded.');
                 end
                 
-                app.StatusLabel.Text = sprintf('Loaded %d frames total', length(app.frames));
+                app.StatusLabel.Text = sprintf('Loaded %d frames', length(app.frames));
                 app.StatusLabel.FontColor = [0 1 0];
                 
             catch ME
-                uialert(app.UIFigure, ME.message, 'Video Loading Error');
-                app.StatusLabel.Text = 'Error loading video data';
+                uialert(app.UIFigure, ME.message, 'Video Error');
+                app.StatusLabel.Text = 'Error loading.';
                 app.StatusLabel.FontColor = [1 0 0];
             end
         end
@@ -318,8 +321,8 @@ classdef data_tester < matlab.apps.AppBase
             end
             
             % Display which classes were actually tested
-            app.StatusLabel.Text = sprintf('Tested %d of %d classes: %s', ...
-                numTestedClasses, length(allClassNames), strjoin(testedClasses, ', '));
+            app.StatusLabel.Text = sprintf('Tested %d classes: %s', ...
+                numTestedClasses, strjoin(testedClasses, ', '));
         end
         
         function displayResults(app)
@@ -327,17 +330,17 @@ classdef data_tester < matlab.apps.AppBase
             app.PrecisionLabel.Text = sprintf('Precision: %.2f%%', app.precision * 100);
             app.RecallLabel.Text = sprintf('Recall: %.2f%%', app.recall * 100);
             app.F1ScoreLabel.Text = sprintf('F1-Score: %.2f%%', app.f1score * 100);
-            app.StatusLabel.Text = 'Evaluation complete!';
+            app.StatusLabel.Text = 'Done.';
             app.StatusLabel.FontColor = [0 1 0];
         end
 
     end
     
 
-    % Callbacks that handle component events
+    % Callbacks
     methods (Access = private)
 
-        % Code that executes after component creation
+        % Startup
         function startupFcn(app)
             % Initialize with Video mode selected
             app.VideoCSVButton.Value = true;
@@ -346,11 +349,11 @@ classdef data_tester < matlab.apps.AppBase
             TestInputFormatButtonGroupSelectionChanged(app, []);
             
             % Initialize status
-            app.StatusLabel.Text = 'Ready - Select input type ("Folder of Pairs" for batch)';
+            app.StatusLabel.Text = 'Ready.';
             app.StatusLabel.FontColor = [0 0 0];
         end
 
-        % Button pushed function: LoadNetworkButton
+        % Load Network
         function LoadNetworkButtonPushed(app, event)
             [file, path] = uigetfile({'*.mat','MAT-files (*.mat)'}, 'Select a trained network');
             if isequal(file, 0)
@@ -361,7 +364,7 @@ classdef data_tester < matlab.apps.AppBase
             NetSelectionUpdated(app, fullPath);
         end
 
-        % Button pushed function: UploadCSVButton
+        % Upload CSV
         function UploadCSVButtonPushed(app, event)
             [file, path] = uigetfile('*.csv', 'Select CSV File');
             if file ~= 0
@@ -374,7 +377,7 @@ classdef data_tester < matlab.apps.AppBase
             end
         end
 
-        % Button pushed function: SelectImageFolderButton
+        % Select Folder
         function SelectImageFolderButtonPushed(app, event)
             folder = uigetdir(pwd, 'Select Folder');
             if folder ~= 0
@@ -385,17 +388,21 @@ classdef data_tester < matlab.apps.AppBase
                     app.SelectImageFolderButton.FontColor = [0 1 0];
                     
                     % Scan for pairs
-                    app.StatusLabel.Text = 'Scanning for file pairs...';
+                    app.StatusLabel.Text = 'Scanning...';
                     drawnow;
                     
-                    % Find CSV files matching pattern
-                    csvFiles = dir(fullfile(app.imageFolderPath, '*.csv'));
-                    app.foundPairs = struct('csv', {}, 'mp4', {});
-                    listBoxItems = {};
+                    % Recursive search
+                    csvFiles = dir(fullfile(app.imageFolderPath, '**', '*.csv'));
+                    
+                    % Append pairs
+                    listBoxItems = app.FoundFilesListBox.Items;
+                    newPairsCount = 0;
                     
                     for i = 1:length(csvFiles)
                         csvName = csvFiles(i).name;
-                        % Check if it matches pattern *_<number>.csv
+                        csvFolder = csvFiles(i).folder;
+                        
+                        % Check pattern *_<number>.csv
                         tokens = regexp(csvName, '(.*)_(\d+)\.csv$', 'tokens');
                         if isempty(tokens)
                             continue;
@@ -403,48 +410,55 @@ classdef data_tester < matlab.apps.AppBase
                         
                         numberPart = tokens{1}{2};
                         
-                        % Look for matching MP4: *_<number>.mp4
-                        mp4Files = dir(fullfile(app.imageFolderPath, sprintf('*_%s.mp4', numberPart)));
+                        % Look for matching MP4
+                        mp4Pattern = sprintf('*_%s.mp4', numberPart);
+                        mp4Files = dir(fullfile(csvFolder, mp4Pattern));
                         
                         if ~isempty(mp4Files)
                             mp4Name = mp4Files(1).name;
                             
                             % Store pair
-                            app.foundPairs(end+1).csv = fullfile(app.imageFolderPath, csvName);
-                            app.foundPairs(end).mp4 = fullfile(app.imageFolderPath, mp4Name);
+                            app.foundPairs(end+1).csv = fullfile(csvFolder, csvName);
+                            app.foundPairs(end).mp4 = fullfile(csvFolder, mp4Name);
                             
-                            % Add to display list
-                            listBoxItems{end+1} = sprintf('%s  <-->  %s', csvName, mp4Name);
+                            % Display with parent folder
+                            [~, immediateParent, ~] = fileparts(csvFolder);
+                            listBoxItems{end+1} = sprintf('[%s] %s', immediateParent, csvName);
+                            newPairsCount = newPairsCount + 1;
                         end
                     end
                     
                     app.FoundFilesListBox.Items = listBoxItems;
                     
                     if isempty(app.foundPairs)
-                        app.StatusLabel.Text = 'No matching pairs found in folder.';
-                        app.StatusLabel.FontColor = [1 0 0];
+                        if isempty(listBoxItems)
+                             app.StatusLabel.Text = 'No pairs found.';
+                             app.StatusLabel.FontColor = [1 0 0];
+                        else
+                             app.StatusLabel.Text = sprintf('Found %d pairs.', length(app.foundPairs));
+                             app.StatusLabel.FontColor = [1 0.5 0];
+                        end
                     else
-                        app.StatusLabel.Text = sprintf('Found %d pairs.', length(app.foundPairs));
+                        app.StatusLabel.Text = sprintf('Added %d. Total: %d', newPairsCount, length(app.foundPairs));
                         app.StatusLabel.FontColor = [0 1 0];
                     end
                     
                 else
-                    % Standard image folder mode
                     app.FileLabel.Text = folder;
                     app.SelectImageFolderButton.FontColor = [0 1 0];
-                    app.StatusLabel.Text = 'Image folder selected.';
+                    app.StatusLabel.Text = 'Folder selected.';
                 end
             end
         end
 
-        % Button pushed function: RunEvaluationButton
+        % Run Evaluation
         function RunEvaluationButtonPushed(app, event)
             if isempty(app.Net)
-                uialert(app.UIFigure, 'Please load a network first!', 'Error');
+                uialert(app.UIFigure, 'Load network first.', 'Error');
                 return;
             end
             
-            % Clear previous results
+            % Reset results
             app.AccuracyLabel.Text = 'Accuracy';
             app.PrecisionLabel.Text = 'Precision';
             app.RecallLabel.Text = 'Recall';
@@ -452,81 +466,103 @@ classdef data_tester < matlab.apps.AppBase
             app.confusionMat = [];
             
             try
-                % 1. Load data based on input type
+                % Check mode
                 if app.VideoCSVButton.Value
                     if isempty(app.videoPath) || isempty(app.csvPath)
-                        uialert(app.UIFigure, 'Please select both video and CSV files!', 'Error');
+                        uialert(app.UIFigure, 'Select video and CSV.', 'Error');
                         return;
                     end
                     loadVideoData(app);
                     
                 elseif app.FolderPairsButton.Value
                     if isempty(app.foundPairs)
-                        uialert(app.UIFigure, 'No data pairs found! Select a valid folder first.', 'Error');
+                        uialert(app.UIFigure, 'No pairs found.', 'Error');
                         return;
                     end
                     
-                    app.StatusLabel.Text = 'Processing pairs...';
+                    app.StatusLabel.Text = 'Batching...';
                     drawnow;
                     
-                    app.frames = {};
-                    app.trueLabels = {};
+                    % Accumulate stats
+                    allPredictions = {};
+                    allTrueLabels = {};
+                    filesProcessed = 0;
+                    totalFiles = length(app.foundPairs);
                     
-                    filesLoaded = 0;
-                    
-                    for i = 1:length(app.foundPairs)
+                    for i = 1:totalFiles
                         try
-                            loadVideoData(app, app.foundPairs(i).mp4, app.foundPairs(i).csv, true);
-                            filesLoaded = filesLoaded + 1;
+                            pair = app.foundPairs(i);
+                            [~, name, ~] = fileparts(pair.csv);
+                            
+                            app.StatusLabel.Text = sprintf('[%d/%d] %s', i, totalFiles, name);
+                            drawnow;
+                            
+                            % Load and predict
+                            loadVideoData(app, pair.mp4, pair.csv, false);
+                            runPredictions(app);
+                            
+                            % Store
+                            allPredictions = [allPredictions, app.predictions]; %#ok<AGROW>
+                            allTrueLabels = [allTrueLabels, app.trueLabels]; %#ok<AGROW>
+                            
+                            filesProcessed = filesProcessed + 1;
+                            
                         catch ME
-                            warning('Failed to load pair %d: %s', i, ME.message);
+                            warning('Skipped pair %d: %s', i, ME.message);
                         end
                     end
                     
-                    if filesLoaded == 0
-                         error('Failed to load any of the found pairs.');
+                    if filesProcessed == 0
+                         error('No pairs processed.');
                     end
                     
-                    app.StatusLabel.Text = sprintf('Loaded data from %d file pairs', filesLoaded);
+                    % Aggregate
+                    app.predictions = allPredictions;
+                    app.trueLabels = allTrueLabels;
+                    
+                    app.StatusLabel.Text = sprintf('Processed %d. Calculating...', filesProcessed);
                     
                 else
                     if isempty(app.imageFolderPath)
-                        uialert(app.UIFigure, 'Please select an image folder!', 'Error');
+                        uialert(app.UIFigure, 'Select an image folder.', 'Error');
                         return;
                     end
                     loadImageData(app);
+                    runPredictions(app);
                 end
                 
-                % 2. Run predictions (against ALL 24 classes)
-                runPredictions(app);
-                
-                % 3. Calculate metrics
+                % Video mode needs prediction call
+                if app.VideoCSVButton.Value
+                     runPredictions(app);
+                end
+
+                % Calculate metrics
                 calculateMetrics(app);
                 
-                % 4. Display results
+                % Display results
                 displayResults(app);
                 
             catch ME
-                uialert(app.UIFigure, ME.message, 'Evaluation Error');
-                app.StatusLabel.Text = 'Error during evaluation';
+                uialert(app.UIFigure, ME.message, 'Error');
+                app.StatusLabel.Text = 'Error.';
                 app.StatusLabel.FontColor = [1 0 0];
             end
         end
 
-        % Button pushed function: ShowConfusionMatrixButton
+        % Confusion Matrix
         function ShowConfusionMatrixButtonPushed(app, event)
             if isempty(app.Net)
-                uialert(app.UIFigure, 'Load a network first!', 'Error');
+                uialert(app.UIFigure, 'Load network first.', 'Error');
                 return;
             end
             
-            % Check if we have predictions
+            % Check results
             if isempty(app.predictions) || isempty(app.trueLabels)
-                uialert(app.UIFigure, 'Run evaluation first to see confusion matrix!', 'Info');
+                uialert(app.UIFigure, 'Run evaluation first.', 'Info');
                 return;
             end
             
-            % Get ALL 24 classes from the network
+            % Get all classes
             allClassNames = cellstr(app.NetClasses);
             
             % Ensure same length
@@ -534,38 +570,37 @@ classdef data_tester < matlab.apps.AppBase
             predictions = app.predictions(1:minLen);
             trueLabels = app.trueLabels(1:minLen);
             
-            % Convert to categorical with ALL 24 classes
+            % Convert to categorical
             true_cat = categorical(trueLabels, allClassNames);
             pred_cat = categorical(predictions, allClassNames);
             
-            % Create confusion matrix figure
-            fig = figure('Name', 'Confusion Matrix - ASL Letter Recognition', ...
+            % Create figure
+            fig = figure('Name', 'Confusion Matrix', ...
                         'NumberTitle', 'off', ...
                         'Position', [100, 100, 1200, 900]);
             
-            % Create confusion chart with ALL 24 classes
+            % Chart
             cm = confusionchart(true_cat, pred_cat);
             
-            % Customize the chart
-            cm.Title = sprintf('ASL Letter Recognition - %d×%d Confusion Matrix', ...
-                length(allClassNames), length(allClassNames));
+            % Customize
+            cm.Title = sprintf('ASL Recognition Confusion Matrix - %d×%d (Accuracy: %.1f%%)', ...
+                length(allClassNames), length(allClassNames), app.accuracy * 100);
             cm.RowSummary = 'row-normalized';
             cm.ColumnSummary = 'column-normalized';
             cm.FontSize = 10;
                        
-            % Improve visualization
             colormap(jet);
             
-            % Add text annotations for clarity
+            % Annotations
             annotation('textbox', [0.1, 0.02, 0.8, 0.05], ...
                 'String', 'Rows: True Labels | Columns: Predicted Labels | Diagonal: Correct Predictions', ...
                 'EdgeColor', 'none', ...
                 'FontSize', 10, ...
                 'HorizontalAlignment', 'center');
             
-            % Print matrix values for debugging
-            fprintf('\n=== Confusion Matrix Values ===\n');
-            fprintf('Matrix size: %d×%d\n', size(app.confusionMat));
+            % Debug print
+            fprintf('\n=== Matrix details ===\n');
+            fprintf('Size: %d×%d\n', size(app.confusionMat));
             fprintf('Classes: %s\n', strjoin(allClassNames, ', '));
             fprintf('\n');
             
@@ -586,12 +621,11 @@ classdef data_tester < matlab.apps.AppBase
             end
             
             if length(allClassNames) > 10
-                fprintf('... (showing first 10×10, full matrix is %d×%d)\n', ...
-                    length(allClassNames), length(allClassNames));
+                fprintf('... (showing first 10×10)\n');
             end
         end
 
-        % Selection changed function: TestInputFormatButtonGroup
+        % Input Format Selection Changed
         function TestInputFormatButtonGroupSelectionChanged(app, event)
             if isempty(event) || ~isprop(event, 'NewValue')
                 selectedButton = app.TestInputFormatButtonGroup.SelectedObject;
@@ -599,12 +633,12 @@ classdef data_tester < matlab.apps.AppBase
                 selectedButton = event.NewValue;
             end
             
-            % Determine mode based on button text (safer than handle comparison)
+            % Mode check
             isFolderPairs = strcmp(selectedButton.Text, 'Folder of Pairs');
             isImageFolder = strcmp(selectedButton.Text, 'Image Folder');
             isVideoMode = strcmp(selectedButton.Text, 'Video + CSV');
             
-            % Toggle visibility helper
+            % Visibility helper
             function s = bool2vis(b)
                 if b, s = 'on'; else, s = 'off'; end
             end
@@ -614,21 +648,30 @@ classdef data_tester < matlab.apps.AppBase
             app.UploadCSVButton.Visible = bool2vis(isVideoMode);
             app.CSVFileLabel.Visible = bool2vis(isVideoMode);
             
-            % 2. Folder Button (Used for both Folder Pairs and Image Folder)
+            % 2. Folder Button
             app.SelectImageFolderButton.Visible = bool2vis(isFolderPairs || isImageFolder);
             if isFolderPairs
-                app.SelectImageFolderButton.Text = 'Select Data Folder';
+                app.SelectImageFolderButton.Text = 'Add Data Folder';
             elseif isImageFolder
                 app.SelectImageFolderButton.Text = 'Select Image Folder';
             end
             
-            % 3. Mode-specific controls
+            % 3. Mode Controls
             app.FoundFilesListBox.Visible = bool2vis(isFolderPairs);
+            app.ClearFilesButton.Visible = bool2vis(isFolderPairs);
             app.ExpectedLetterDropDown.Visible = bool2vis(isImageFolder);
             app.ExpectedLetterDropDown_2Label.Visible = bool2vis(isImageFolder);
         end
+        
+        % Clear Files
+        function ClearFilesButtonPushed(app, event)
+            app.foundPairs = struct('csv', {}, 'mp4', {});
+            app.FoundFilesListBox.Items = {};
+            app.StatusLabel.Text = 'Cleared.';
+            app.StatusLabel.FontColor = [0 0 0];
+        end
 
-        % Button pushed function: UploadVideoButton
+        % Upload Video
         function UploadVideoButtonPushed(app, event)
             [file, path] = uigetfile({'*.mp4', ...
                 'Video Files (*.mp4)'}, ...
@@ -647,32 +690,32 @@ classdef data_tester < matlab.apps.AppBase
     % Component initialization
     methods (Access = private)
 
-        % Create UIFigure and components
+        % Initialize UI
         function createComponents(app)
 
-            % Create UIFigure and hide until all components are created
+            % Create Figure
             app.UIFigure = uifigure('Visible', 'off');
             app.UIFigure.Position = [100 100 640 540];
             app.UIFigure.Name = 'ASL Data Tester';
 
-            % Main Grid Layout
+            % Main Grid
             mainGrid = uigridlayout(app.UIFigure);
             mainGrid.ColumnWidth = {'1.5x', '1x'}; 
             mainGrid.RowHeight = {'1x', 30};
 
             % -- Input Panel --
             app.InputPanel = uipanel(mainGrid);
-            app.InputPanel.Title = 'Input Configuration';
+            app.InputPanel.Title = 'Input';
             app.InputPanel.Layout.Row = 1;
             app.InputPanel.Layout.Column = 1;
 
-            % Input Grid Layout
+            % Input Grid
             inputGrid = uigridlayout(app.InputPanel);
             inputGrid.ColumnWidth = {'1x', '1x'};
             % Rows: 1:Mode, 2:Video/Folder, 3:CSV/Letter, 4:Listbox, 5:LoadNet, 6:Eval
             inputGrid.RowHeight = {80, 40, 40, '1x', 40, 50}; 
 
-            % 1. Input Format Group (Absolute within Grid Cell)
+            % 1. Input Format Group
             app.TestInputFormatButtonGroup = uibuttongroup(inputGrid);
             app.TestInputFormatButtonGroup.SelectionChangedFcn = createCallbackFcn(app, @TestInputFormatButtonGroupSelectionChanged, true);
             app.TestInputFormatButtonGroup.Title = 'Test Input Format';
@@ -693,7 +736,7 @@ classdef data_tester < matlab.apps.AppBase
             app.ImageFolderButton.Text = 'Image Folder';
             app.ImageFolderButton.Position = [10 10 100 22];
 
-            % 2. File Selection Row (Overlapped cells)
+            % 2. File Selection Row
             app.UploadVideoButton = uibutton(inputGrid, 'push');
             app.UploadVideoButton.Text = 'Upload Video';
             app.UploadVideoButton.Layout.Row = 2;
@@ -711,6 +754,14 @@ classdef data_tester < matlab.apps.AppBase
             app.FileLabel.Text = '';
             app.FileLabel.Layout.Row = 2;
             app.FileLabel.Layout.Column = 2;
+
+            % Clear Files Button
+            app.ClearFilesButton = uibutton(inputGrid, 'push');
+            app.ClearFilesButton.Text = 'Clear List';
+            app.ClearFilesButton.Layout.Row = 2;
+            app.ClearFilesButton.Layout.Column = 2;
+            app.ClearFilesButton.Visible = 'off';
+            app.ClearFilesButton.ButtonPushedFcn = createCallbackFcn(app, @ClearFilesButtonPushed, true);
 
             % 3. Secondary Input Row (CSV or Expected Letter)
             app.UploadCSVButton = uibutton(inputGrid, 'push');
@@ -740,6 +791,7 @@ classdef data_tester < matlab.apps.AppBase
 
             % 4. Found Pairs List Box
             app.FoundFilesListBox = uilistbox(inputGrid);
+            app.FoundFilesListBox.Items = {};
             app.FoundFilesListBox.Layout.Row = 4;
             app.FoundFilesListBox.Layout.Column = [1 2];
             app.FoundFilesListBox.Visible = 'off';
@@ -801,10 +853,10 @@ classdef data_tester < matlab.apps.AppBase
         end
     end
 
-    % App creation and deletion
+    % App Lifecycle
     methods (Access = public)
 
-        % Construct app
+        % Constructor
         function app = data_tester
 
             % Create UIFigure and components
@@ -821,7 +873,7 @@ classdef data_tester < matlab.apps.AppBase
             end
         end
 
-        % Code that executes before app deletion
+        % Destructor
         function delete(app)
 
             % Delete UIFigure when app is deleted
