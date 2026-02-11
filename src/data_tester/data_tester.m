@@ -25,6 +25,10 @@ classdef data_tester < matlab.apps.AppBase
         VideoCSVButton                 matlab.ui.control.RadioButton
         FolderPairsButton              matlab.ui.control.RadioButton
         FoundFilesListBox              matlab.ui.control.ListBox
+        LoadedNetworkLabel             matlab.ui.control.Label
+        NetworkNameEditField           matlab.ui.control.EditField
+        NetworkNameLabel               matlab.ui.control.Label
+        ModelNameResultLabel           matlab.ui.control.Label
     end
 
     
@@ -73,7 +77,12 @@ classdef data_tester < matlab.apps.AppBase
                 app.NetInputSize = app.getNetInputSize(net);
                 
                 % Update UI
-                app.StatusLabel.Text = sprintf('Network loaded: %s', fullPath); 
+                [~, fname, ~] = fileparts(fullPath);
+                app.LoadedNetworkLabel.Text = fname;
+                app.NetworkNameEditField.Value = fname;
+                app.ModelNameResultLabel.Text = ['Model: ' fname];
+                
+                app.StatusLabel.Text = 'Network loaded.';
                 app.StatusLabel.FontColor = [0 1 0];
                 app.LoadNetworkButton.FontColor = [0 1 0];
             catch err
@@ -326,6 +335,11 @@ classdef data_tester < matlab.apps.AppBase
         end
         
         function displayResults(app)
+            % Update Model Name result
+            name = app.NetworkNameEditField.Value;
+            if isempty(name), name = '-'; end
+            app.ModelNameResultLabel.Text = ['Model: ' name];
+
             app.AccuracyLabel.Text = sprintf('Accuracy: %.2f%%', app.accuracy * 100);
             app.PrecisionLabel.Text = sprintf('Precision: %.2f%%', app.precision * 100);
             app.RecallLabel.Text = sprintf('Recall: %.2f%%', app.recall * 100);
@@ -583,8 +597,13 @@ classdef data_tester < matlab.apps.AppBase
             cm = confusionchart(true_cat, pred_cat);
             
             % Customize
-            cm.Title = sprintf('ASL Recognition Confusion Matrix - %d×%d (Accuracy: %.1f%%)', ...
-                length(allClassNames), length(allClassNames), app.accuracy * 100);
+            netName = app.NetworkNameEditField.Value;
+            if isempty(netName)
+                netName = 'ASL Model';
+            end
+            
+            cm.Title = sprintf('%s - Confusion Matrix (Acc: %.1f%%)', ...
+                netName, app.accuracy * 100);
             cm.RowSummary = 'row-normalized';
             cm.ColumnSummary = 'column-normalized';
             cm.FontSize = 10;
@@ -712,8 +731,8 @@ classdef data_tester < matlab.apps.AppBase
             % Input Grid
             inputGrid = uigridlayout(app.InputPanel);
             inputGrid.ColumnWidth = {'1x', '1x'};
-            % Rows: 1:Mode, 2:Video/Folder, 3:CSV/Letter, 4:Listbox, 5:LoadNet, 6:Eval
-            inputGrid.RowHeight = {80, 40, 40, '1x', 40, 50}; 
+            % Rows: 1:Mode, 2:Video/Folder, 3:CSV/Letter, 4:Listbox, 5:LoadNet, 6:LoadedLbl, 7:NameEditor, 8:Eval
+            inputGrid.RowHeight = {80, 40, 40, '1x', 40, 25, 30, 50}; 
 
             % 1. Input Format Group
             app.TestInputFormatButtonGroup = uibuttongroup(inputGrid);
@@ -803,11 +822,31 @@ classdef data_tester < matlab.apps.AppBase
             app.LoadNetworkButton.Layout.Column = [1 2];
             app.LoadNetworkButton.ButtonPushedFcn = createCallbackFcn(app, @LoadNetworkButtonPushed, true);
 
-            % 6. Run Evaluation
+            % 6. Loaded Network Label
+            app.LoadedNetworkLabel = uilabel(inputGrid);
+            app.LoadedNetworkLabel.Text = '(No network loaded)';
+            app.LoadedNetworkLabel.HorizontalAlignment = 'center';
+            app.LoadedNetworkLabel.FontColor = [0.5 0.5 0.5];
+            app.LoadedNetworkLabel.Layout.Row = 6;
+            app.LoadedNetworkLabel.Layout.Column = [1 2];
+
+            % 7. Network Name Input
+            app.NetworkNameLabel = uilabel(inputGrid);
+            app.NetworkNameLabel.Text = 'Name:';
+            app.NetworkNameLabel.HorizontalAlignment = 'right';
+            app.NetworkNameLabel.Layout.Row = 7;
+            app.NetworkNameLabel.Layout.Column = 1;
+
+            app.NetworkNameEditField = uieditfield(inputGrid, 'text');
+            app.NetworkNameEditField.Layout.Row = 7;
+            app.NetworkNameEditField.Layout.Column = 2;
+            app.NetworkNameEditField.Placeholder = 'Model Name';
+
+            % 8. Run Evaluation
             app.RunEvaluationButton = uibutton(inputGrid, 'push');
             app.RunEvaluationButton.Text = 'Run Evaluation';
             app.RunEvaluationButton.FontSize = 18;
-            app.RunEvaluationButton.Layout.Row = 6;
+            app.RunEvaluationButton.Layout.Row = 8;
             app.RunEvaluationButton.Layout.Column = [1 2];
             app.RunEvaluationButton.ButtonPushedFcn = createCallbackFcn(app, @RunEvaluationButtonPushed, true);
 
@@ -819,27 +858,32 @@ classdef data_tester < matlab.apps.AppBase
 
             resultsGrid = uigridlayout(app.ResultsPanel);
             resultsGrid.ColumnWidth = {'1x'};
-            resultsGrid.RowHeight = {30, 30, 30, 30, 40, '1x'};
+            resultsGrid.RowHeight = {30, 30, 30, 30, 30, 40, '1x'};
+
+            app.ModelNameResultLabel = uilabel(resultsGrid);
+            app.ModelNameResultLabel.Text = 'Model: -';
+            app.ModelNameResultLabel.FontWeight = 'bold';
+            app.ModelNameResultLabel.Layout.Row = 1;
 
             app.AccuracyLabel = uilabel(resultsGrid);
             app.AccuracyLabel.Text = 'Accuracy:';
-            app.AccuracyLabel.Layout.Row = 1;
+            app.AccuracyLabel.Layout.Row = 2;
 
             app.PrecisionLabel = uilabel(resultsGrid);
             app.PrecisionLabel.Text = 'Precision:';
-            app.PrecisionLabel.Layout.Row = 2;
+            app.PrecisionLabel.Layout.Row = 3;
 
             app.RecallLabel = uilabel(resultsGrid);
             app.RecallLabel.Text = 'Recall:';
-            app.RecallLabel.Layout.Row = 3;
+            app.RecallLabel.Layout.Row = 4;
 
             app.F1ScoreLabel = uilabel(resultsGrid);
             app.F1ScoreLabel.Text = 'F1-Score:';
-            app.F1ScoreLabel.Layout.Row = 4;
+            app.F1ScoreLabel.Layout.Row = 5;
 
             app.ShowConfusionMatrixButton = uibutton(resultsGrid, 'push');
             app.ShowConfusionMatrixButton.Text = 'Show Confusion Matrix';
-            app.ShowConfusionMatrixButton.Layout.Row = 5;
+            app.ShowConfusionMatrixButton.Layout.Row = 6;
             app.ShowConfusionMatrixButton.ButtonPushedFcn = createCallbackFcn(app, @ShowConfusionMatrixButtonPushed, true);
 
             % -- Status Label --
