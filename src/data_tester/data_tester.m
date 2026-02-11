@@ -346,8 +346,8 @@ classdef data_tester < matlab.apps.AppBase
             TestInputFormatButtonGroupSelectionChanged(app, []);
             
             % Initialize status
-            app.StatusLabel.Text = 'Ready - Select input type and load network';
-            app.StatusLabel.FontColor = [0 1 0];
+            app.StatusLabel.Text = 'Ready - Select input type ("Folder of Pairs" for batch)';
+            app.StatusLabel.FontColor = [0 0 0];
         end
 
         % Button pushed function: LoadNetworkButton
@@ -593,46 +593,39 @@ classdef data_tester < matlab.apps.AppBase
 
         % Selection changed function: TestInputFormatButtonGroup
         function TestInputFormatButtonGroupSelectionChanged(app, event)
-            selectedButton = app.TestInputFormatButtonGroup.SelectedObject;
-    
-            if selectedButton == app.VideoCSVButton
-                % Show video + CSV controls
-                app.UploadVideoButton.Visible = 'on';
-                app.UploadCSVButton.Visible = 'on';
-                app.CSVFileLabel.Visible = 'on';
-                
-                % Hide folder controls
-                app.SelectImageFolderButton.Visible = 'off';
-                app.ExpectedLetterDropDown.Visible = 'off';
-                app.ExpectedLetterDropDown_2Label.Visible = 'off';
-                app.FoundFilesListBox.Visible = 'off';
-                
-            elseif selectedButton == app.FolderPairsButton
-                % Show folder selection & listbox
-                app.SelectImageFolderButton.Visible = 'on';
-                app.SelectImageFolderButton.Text = 'Select Data Folder';
-                app.FoundFilesListBox.Visible = 'on';
-                
-                % Hide others
-                app.UploadVideoButton.Visible = 'off';
-                app.UploadCSVButton.Visible = 'off';
-                app.CSVFileLabel.Visible = 'off';
-                app.ExpectedLetterDropDown.Visible = 'off';
-                app.ExpectedLetterDropDown_2Label.Visible = 'off';
-
-            else % ImageFolderButton
-                % Show image folder controls
-                app.SelectImageFolderButton.Visible = 'on';
-                app.SelectImageFolderButton.Text = 'Select Image Folder';
-                app.ExpectedLetterDropDown.Visible = 'on';
-                app.ExpectedLetterDropDown_2Label.Visible = 'on';
-                
-                % Hide others
-                app.UploadVideoButton.Visible = 'off';
-                app.UploadCSVButton.Visible = 'off';
-                app.CSVFileLabel.Visible = 'off';
-                app.FoundFilesListBox.Visible = 'off';
+            if isempty(event) || ~isprop(event, 'NewValue')
+                selectedButton = app.TestInputFormatButtonGroup.SelectedObject;
+            else
+                selectedButton = event.NewValue;
             end
+            
+            % Determine mode based on button text (safer than handle comparison)
+            isFolderPairs = strcmp(selectedButton.Text, 'Folder of Pairs');
+            isImageFolder = strcmp(selectedButton.Text, 'Image Folder');
+            isVideoMode = strcmp(selectedButton.Text, 'Video + CSV');
+            
+            % Toggle visibility helper
+            function s = bool2vis(b)
+                if b, s = 'on'; else, s = 'off'; end
+            end
+            
+            % 1. Video Controls
+            app.UploadVideoButton.Visible = bool2vis(isVideoMode);
+            app.UploadCSVButton.Visible = bool2vis(isVideoMode);
+            app.CSVFileLabel.Visible = bool2vis(isVideoMode);
+            
+            % 2. Folder Button (Used for both Folder Pairs and Image Folder)
+            app.SelectImageFolderButton.Visible = bool2vis(isFolderPairs || isImageFolder);
+            if isFolderPairs
+                app.SelectImageFolderButton.Text = 'Select Data Folder';
+            elseif isImageFolder
+                app.SelectImageFolderButton.Text = 'Select Image Folder';
+            end
+            
+            % 3. Mode-specific controls
+            app.FoundFilesListBox.Visible = bool2vis(isFolderPairs);
+            app.ExpectedLetterDropDown.Visible = bool2vis(isImageFolder);
+            app.ExpectedLetterDropDown_2Label.Visible = bool2vis(isImageFolder);
         end
 
         % Button pushed function: UploadVideoButton
