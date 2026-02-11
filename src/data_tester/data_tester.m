@@ -73,7 +73,7 @@ classdef data_tester < matlab.apps.AppBase
                 app.NetInputSize = app.getNetInputSize(net);
                 
                 % Update UI
-                app.StatusLabel.Text = 'Network loaded.';
+                app.StatusLabel.Text = sprintf('Network loaded: %s', fullPath); 
                 app.StatusLabel.FontColor = [0 1 0];
                 app.LoadNetworkButton.FontColor = [0 1 0];
             catch err
