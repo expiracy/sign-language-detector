@@ -286,7 +286,7 @@ classdef data_tester < matlab.apps.AppBase
             true_cat = categorical(trueLabels, allClassNames);
             pred_cat = categorical(predictions, allClassNames);
             
-            % Create 24×24 confusion matrix
+            % Create 24x24 confusion matrix
             app.confusionMat = confusionmat(true_cat, pred_cat);
             
             % Overall accuracy
@@ -640,13 +640,13 @@ classdef data_tester < matlab.apps.AppBase
             end
             
             % Debug print
-            fprintf('\n=== Matrix details ===\n');
-            fprintf('Size: %d×%d\n', size(app.confusionMat));
+            fprintf('\nMatrix\n');
+            fprintf('Size: %dx%d\n', size(app.confusionMat));
             fprintf('Classes: %s\n', strjoin(allClassNames, ', '));
             fprintf('\n');
             
             % Display confusion matrix in command window
-            disp('Confusion Matrix (True × Predicted):');
+            disp('Confusion Matrix (True x Predicted):');
             fprintf('     ');
             for i = 1:min(10, length(allClassNames))
                 fprintf('%4s ', allClassNames{i});
@@ -662,7 +662,7 @@ classdef data_tester < matlab.apps.AppBase
             end
             
             if length(allClassNames) > 10
-                fprintf('... (showing first 10×10)\n');
+                fprintf('... (showing first 10x10)\n');
             end
         end
 
