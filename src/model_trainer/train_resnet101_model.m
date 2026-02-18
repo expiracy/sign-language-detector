@@ -4,39 +4,27 @@ clc; clear; close all;
 
 parallel.gpu.enableCUDAForwardCompatibility(true);
 
-%% SECTION 1: Create Output Directory
-fprintf('Creating output directory...\n');
-
+%% Create Output Directory
 outputDir = fullfile(pwd, 'outputs', sprintf('resnet101_%s', datestr(now, 'yyyy-mm-dd_HH-MM-SS')));
 if ~exist(outputDir, 'dir')
     mkdir(outputDir);
 end
-fprintf('Output directory created: %s\n', outputDir);
 
-%% SECTION 2: Targeted Data Loading
-fprintf('Loading data...\n');
-
+%% Data Loading
 datasetPath = fullfile(pwd, 'data/datasets_v2/'); 
 
 if ~exist(datasetPath, 'dir')
-    % If the hardcoded path is wrong, look in the current folder
     fprintf('Warning: folder not found at: %s\n', datasetPath);
-    fprintf('Scanning current directory...\n');
     datasetPath = pwd; 
-else
-    fprintf('Target folder found: %s\n', datasetPath);
 end
 
-fprintf('Scanning images...\n');
 imds = imageDatastore(datasetPath, ...
     'IncludeSubfolders', true, ...
     'LabelSource', 'foldernames'); 
 
-fprintf('Found images: %d\n', length(imds.Files));
+fprintf('Found %d images\n', length(imds.Files));
 
-%% SECTION 3: Filter & Split Data (STRICT A-Z ONLY)
-fprintf('Filtering data (A-Z only)...\n');
-
+%% Filter & Split Data
 labelCounts = countEachLabel(imds);
 allLabels = labelCounts.Label;
 
@@ -58,18 +46,13 @@ filesToKeep = ismember(imds.Labels, validLabels);
 imds = subset(imds, filesToKeep);
 
 imds.Labels = removecats(imds.Labels);
-% Standard 80/20 split. 80% for training, 20% to check if it actually works.
 
 [imdsTrain, imdsValidation] = splitEachLabel(imds, 0.8, 'randomized');
-fprintf('Data split completed:\n');
-fprintf(' - Training:   %d\n', length(imdsTrain.Files));
-fprintf(' - Validation: %d\n', length(imdsValidation.Files));
+fprintf('Training: %d | Validation: %d\n', length(imdsTrain.Files), length(imdsValidation.Files));
 
-%% SECTION 4: Load Pre-trained Network (ResNet-101)
-fprintf('Loading ResNet-101...\n');
+%% Load ResNet-101
 try
     net = resnet101;
-    fprintf('ResNet-101 loaded.\n');
 catch
     error('ResNet-101 not found. Please install the support package.');
 end
@@ -77,37 +60,28 @@ end
 lgraph = layerGraph(net);
 inputSize = net.Layers(1).InputSize;
 
-%% SECTION 5: Modify Network Layers
-fprintf('Modifying layers...\n');
-
+%% Modify Network Layers
 numClasses = numel(categories(imdsTrain.Labels));
-fprintf('Target classes: %d\n', numClasses);
 
 if numClasses < 2
     error('Error: Fewer than 2 classes found.');
 end
-% Replacing the last 3 layers. The original model was built for 1000 classes (ImageNet),
-% but we only need it for our specific ASL letters.
+
 layersToRemove = {'fc1000', 'prob', 'ClassificationLayer_predictions'};
 lgraph = removeLayers(lgraph, layersToRemove);
 
 newLayers = [
     fullyConnectedLayer(numClasses, ...
         'Name', 'new_fc', ...
-        'WeightLearnRateFactor', 10, ... % Learn faster on the new layer
+        'WeightLearnRateFactor', 10, ...
         'BiasLearnRateFactor', 10)
     softmaxLayer('Name', 'softmax')
     classificationLayer('Name', 'classoutput')];
 
 lgraph = addLayers(lgraph, newLayers);
-% Hook up the new layers to the end of the existing network
 lgraph = connectLayers(lgraph, 'pool5', 'new_fc');
-fprintf('New layers attached.\n');
 
-%% SECTION 6: Data Augmentation
-fprintf('Configuring data augmentation...\n');
-% Randomly rotate, scale, and shift images so the model doesn't just memorize exact pixels.
-fprintf('Configuring data augmentation...\n');
+%% Data Augmentation
 augmenter = imageDataAugmenter( ...
     'RandXTranslation', [-30 30], ...  
     'RandYTranslation', [-30 30], ...  
@@ -117,10 +91,8 @@ augmenter = imageDataAugmenter( ...
 auimdsTrain = augmentedImageDatastore(inputSize(1:2), imdsTrain, ...
     'DataAugmentation', augmenter);
 auimdsValidation = augmentedImageDatastore(inputSize(1:2), imdsValidation);
-fprintf('Augmentation ready.\n');
 
-%% SECTION 7: Training Options
-fprintf('Setting training options...\n');
+%% Training Options
 epochs = 5;
 
 options = trainingOptions('sgdm', ...
@@ -136,11 +108,8 @@ options = trainingOptions('sgdm', ...
     'Verbose', false, ...
     'Plots', 'training-progress');
 
-fprintf('Options set.\n');
 
-%% SECTION 8: Training Execution
-fprintf('Starting training...\n');
-
+%% Training
 trainingTimer = tic;
 
 try
@@ -153,9 +122,7 @@ end
 trainingTime = toc(trainingTimer);
 fprintf('Training complete in %.2f minutes.\n', trainingTime/60);
 
-%% SECTION 9: Generate and Save Confusion Matrix
-fprintf('Generating confusion matrix...\n');
-
+%% Confusion Matrix
 predictedLabels = classify(trainedNet, auimdsValidation);
 trueLabels = imdsValidation.Labels;
 
@@ -169,10 +136,6 @@ confusionchart(trueLabels, predictedLabels, ...
     'ColumnSummary', 'column-normalized');
 
 saveas(figConfusion, fullfile(outputDir, 'confusion_matrix.png'));
-fprintf('Confusion matrix saved.\n');
 
-%% SECTION 10: Save Trained Network
-fprintf('Saving network...\n');
-
+%% Save Network
 save(fullfile(outputDir, 'resnet101.mat'), 'trainedNet');
-fprintf('Network saved.\n');
