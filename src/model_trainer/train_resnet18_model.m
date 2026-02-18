@@ -28,7 +28,7 @@ fprintf('Found %d images\n', length(imds.Files));
 labelCounts = countEachLabel(imds);
 allLabels = labelCounts.Label;
 
-% Only keeping folders named A-Z. Ignoring "nothing", "del", "space", etc.
+% Only keeping folders named A-Z.
 hasEnoughData = labelCounts.Count > 50;
 isLetterAZ = arrayfun(@(x) ~isempty(regexp(char(x), '^[A-Z]$', 'once')), allLabels);
 
