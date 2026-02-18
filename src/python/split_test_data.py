@@ -8,9 +8,6 @@ import random
 import shutil
 from pathlib import Path
 
-# Set random seed for reproducibility (optional - remove for true randomness)
-random.seed(42)
-
 # Define paths
 BASE_DIR = Path(__file__).parent.parent.parent
 
