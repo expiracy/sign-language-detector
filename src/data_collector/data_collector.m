@@ -33,7 +33,7 @@ classdef data_collector < matlab.apps.AppBase
     methods (Access = private)
 
         function startupFcn(app)
-            % 1. Setup Camera
+            % Setup Camera
             try
                 app.Cam = webcam;
             catch
@@ -42,11 +42,11 @@ classdef data_collector < matlab.apps.AppBase
                 return;
             end
             
-            % 2. Initialise Timer for Debouncing (0.25s delay)
+            % Initialise Timer for Debouncing (0.25s delay)
             app.SessionTimer = tic; 
             app.LastCaptureTime = -1;
             
-            % 3. Start the live preview loop
+            % Start the live preview loop
             app.IsCapturing = true;
             app.updatePreviewLoop(); 
         end
@@ -98,7 +98,7 @@ classdef data_collector < matlab.apps.AppBase
 
             % Validation
             
-            % 1. Validate Name
+            % Validate Name
             userName = strtrim(app.NameEdit.Value);
             if isempty(userName)
                 app.StatusLabel.Text = 'Error: Please enter your Name.';
@@ -107,7 +107,7 @@ classdef data_collector < matlab.apps.AppBase
             end
             userName = regexprep(userName, '\s+', '_');
 
-            % 2. Validate Character
+            % Validate Character
             targetChar = upper(strtrim(app.CharEdit.Value));
             if isempty(targetChar) || length(targetChar) > 1 || targetChar < 'A' || targetChar > 'Z'
                 app.StatusLabel.Text = 'Error: Please enter a single letter (A-Z).';
@@ -115,7 +115,7 @@ classdef data_collector < matlab.apps.AppBase
                 return;
             end
             
-            % 3. Get Current ID
+            % Get Current ID
             currentID = app.IDEdit.Value;
             
             % Folder Saving
@@ -242,7 +242,7 @@ classdef data_collector < matlab.apps.AppBase
             controlWidth = 350;
             baseHeight = 200; 
 
-            % 1. NAME FIELD
+            % NAME FIELD
             app.NameLabel = uilabel(app.UIFigure);
             app.NameLabel.Position = [controlLeft, baseHeight + 10, 80, 22];
             app.NameLabel.Text = 'Your Name:';
@@ -252,7 +252,7 @@ classdef data_collector < matlab.apps.AppBase
             app.NameEdit.Position = [controlLeft + 90, baseHeight + 10, 150, 22];
             app.NameEdit.Placeholder = 'Enter Name';
 
-            % 2. CHARACTER FIELD
+            % CHARACTER FIELD
             app.CharLabel = uilabel(app.UIFigure);
             app.CharLabel.Position = [controlLeft, baseHeight - 30, 120, 22];
             app.CharLabel.Text = 'Target Character:';
@@ -264,7 +264,7 @@ classdef data_collector < matlab.apps.AppBase
             app.CharEdit.HorizontalAlignment = 'center';
             app.CharEdit.FontSize = 14;
 
-            % 3. START ID FIELD
+            % START ID FIELD
             app.IDLabel = uilabel(app.UIFigure);
             app.IDLabel.Position = [controlLeft, baseHeight - 70, 120, 22];
             app.IDLabel.Text = 'Next Image ID:';
@@ -276,7 +276,7 @@ classdef data_collector < matlab.apps.AppBase
             app.IDEdit.Limits = [1 Inf];
             app.IDEdit.RoundFractionalValues = 'on';
 
-            % 4. CAPTURE BUTTON
+            % CAPTURE BUTTON
             app.CaptureButton = uibutton(app.UIFigure, 'push');
             app.CaptureButton.ButtonPushedFcn = createCallbackFcn(app, @CaptureButtonPushed, true);
             app.CaptureButton.Position = [controlLeft, baseHeight - 120, controlWidth, 40];
@@ -285,20 +285,20 @@ classdef data_collector < matlab.apps.AppBase
             app.CaptureButton.FontWeight = 'bold';
             app.CaptureButton.BackgroundColor = [0.85, 0.85, 0.85];
 
-            % 5. INSTRUCTIONS
+            % INSTRUCTIONS
             app.Instruction = uilabel(app.UIFigure);
             app.Instruction.Position = [controlLeft, baseHeight - 150, controlWidth, 22];
             app.Instruction.Text = '(or press Spacebar - 0.25s delay)';
             app.Instruction.HorizontalAlignment = 'center';
             app.Instruction.FontColor = [0.4 0.4 0.4];
 
-            % 6. COUNTER
+            % COUNTER
             app.CountLabel = uilabel(app.UIFigure);
             app.CountLabel.Position = [controlLeft, baseHeight - 180, controlWidth, 22];
             app.CountLabel.Text = 'Session Count: 0';
             app.CountLabel.FontSize = 14;
 
-            % 7. STATUS BAR
+            % STATUS BAR
             app.StatusLabel = uilabel(app.UIFigure);
             app.StatusLabel.Position = [20 20 860 30];
             app.StatusLabel.Text = 'Enter Name & Start ID to begin...';

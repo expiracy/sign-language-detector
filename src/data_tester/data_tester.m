@@ -684,12 +684,12 @@ classdef data_tester < matlab.apps.AppBase
                 if b, s = 'on'; else, s = 'off'; end
             end
             
-            % 1. Video Controls
+            % Video Controls
             app.UploadVideoButton.Visible = bool2vis(isVideoMode);
             app.UploadCSVButton.Visible = bool2vis(isVideoMode);
             app.CSVFileLabel.Visible = bool2vis(isVideoMode);
             
-            % 2. Folder Button
+            % Folder Button
             app.SelectImageFolderButton.Visible = bool2vis(isFolderPairs || isImageFolder);
             if isFolderPairs
                 app.SelectImageFolderButton.Text = 'Add Data Folder';
@@ -697,7 +697,7 @@ classdef data_tester < matlab.apps.AppBase
                 app.SelectImageFolderButton.Text = 'Select Image Folder';
             end
             
-            % 3. Mode Controls
+            % Mode Controls
             app.FoundFilesListBox.Visible = bool2vis(isFolderPairs);
             app.ClearFilesButton.Visible = bool2vis(isFolderPairs);
             app.ExpectedLetterDropDown.Visible = bool2vis(isImageFolder);
@@ -756,7 +756,7 @@ classdef data_tester < matlab.apps.AppBase
             % Rows: 1:Mode, 2:Video/Folder, 3:CSV/Letter, 4:Listbox, 5:LoadNet, 6:LoadedLbl, 7:NameEditor, 8:Eval
             inputGrid.RowHeight = {80, 40, 40, '1x', 40, 25, 30, 50}; 
 
-            % 1. Input Format Group
+            % Input Format Group
             app.TestInputFormatButtonGroup = uibuttongroup(inputGrid);
             app.TestInputFormatButtonGroup.SelectionChangedFcn = createCallbackFcn(app, @TestInputFormatButtonGroupSelectionChanged, true);
             app.TestInputFormatButtonGroup.Title = 'Test Input Format';
@@ -777,7 +777,7 @@ classdef data_tester < matlab.apps.AppBase
             app.ImageFolderButton.Text = 'Image Folder';
             app.ImageFolderButton.Position = [10 10 100 22];
 
-            % 2. File Selection Row
+            % File Selection Row
             app.UploadVideoButton = uibutton(inputGrid, 'push');
             app.UploadVideoButton.Text = 'Upload Video';
             app.UploadVideoButton.Layout.Row = 2;
@@ -804,7 +804,7 @@ classdef data_tester < matlab.apps.AppBase
             app.ClearFilesButton.Visible = 'off';
             app.ClearFilesButton.ButtonPushedFcn = createCallbackFcn(app, @ClearFilesButtonPushed, true);
 
-            % 3. Secondary Input Row (CSV or Expected Letter)
+            % Secondary Input Row (CSV or Expected Letter)
             app.UploadCSVButton = uibutton(inputGrid, 'push');
             app.UploadCSVButton.Text = 'Upload CSV';
             app.UploadCSVButton.Layout.Row = 3;
@@ -830,21 +830,21 @@ classdef data_tester < matlab.apps.AppBase
             app.ExpectedLetterDropDown.Layout.Column = 2;
             app.ExpectedLetterDropDown.Visible = 'off';
 
-            % 4. Found Pairs List Box
+            % Found Pairs List Box
             app.FoundFilesListBox = uilistbox(inputGrid);
             app.FoundFilesListBox.Items = {};
             app.FoundFilesListBox.Layout.Row = 4;
             app.FoundFilesListBox.Layout.Column = [1 2];
             app.FoundFilesListBox.Visible = 'off';
 
-            % 5. Load Network
+            % Load Network
             app.LoadNetworkButton = uibutton(inputGrid, 'push');
             app.LoadNetworkButton.Text = 'Load Network';
             app.LoadNetworkButton.Layout.Row = 5;
             app.LoadNetworkButton.Layout.Column = [1 2];
             app.LoadNetworkButton.ButtonPushedFcn = createCallbackFcn(app, @LoadNetworkButtonPushed, true);
 
-            % 6. Loaded Network Label
+            % Loaded Network Label
             app.LoadedNetworkLabel = uilabel(inputGrid);
             app.LoadedNetworkLabel.Text = '(No network loaded)';
             app.LoadedNetworkLabel.HorizontalAlignment = 'center';
@@ -852,7 +852,7 @@ classdef data_tester < matlab.apps.AppBase
             app.LoadedNetworkLabel.Layout.Row = 6;
             app.LoadedNetworkLabel.Layout.Column = [1 2];
 
-            % 7. Network Name Input
+            % Network Name Input
             app.NetworkNameLabel = uilabel(inputGrid);
             app.NetworkNameLabel.Text = 'Name:';
             app.NetworkNameLabel.HorizontalAlignment = 'right';
@@ -864,7 +864,7 @@ classdef data_tester < matlab.apps.AppBase
             app.NetworkNameEditField.Layout.Column = 2;
             app.NetworkNameEditField.Placeholder = 'Model Name';
 
-            % 8. Run Evaluation
+            % Run Evaluation
             app.RunEvaluationButton = uibutton(inputGrid, 'push');
             app.RunEvaluationButton.Text = 'Run Evaluation';
             app.RunEvaluationButton.FontSize = 18;

@@ -4,7 +4,7 @@ classdef asl_app < matlab.apps.AppBase
     properties (Access = public)
         UIFigure        matlab.ui.Figure
 
-        % --- Left Panel (Chart) ---
+        % Left Panel (Chart)
         ChartPanel      matlab.ui.container.Panel
         ChartImage      matlab.ui.control.Image
         SentenceLabel   matlab.ui.control.Label
@@ -12,13 +12,13 @@ classdef asl_app < matlab.apps.AppBase
         DeleteButton    matlab.ui.control.Button
         CopyButton      matlab.ui.control.Button
 
-        % --- Middle Panel (Camera & Sentence) ---
+        % Middle Panel (Camera & Sentence)
         CamPanel        matlab.ui.container.Panel
         ImageInputSelectionDropdown matlab.ui.control.DropDown
         ImageInputSelectionToggleButton matlab.ui.control.StateButton
         ImageAxes       matlab.ui.control.UIAxes
 
-        % --- Right Panel (Results & Controls) ---
+        % Right Panel (Results & Controls)
         ResultsPanel     matlab.ui.container.Panel
         CurrentCharLabel matlab.ui.control.Label
         ConfGauge        matlab.ui.control.LinearGauge
@@ -68,9 +68,7 @@ classdef asl_app < matlab.apps.AppBase
 
     methods (Access = private)
 
-        % =========================
         % STARTUP
-        % =========================
         function startupFcn(app)
             CleanupObj = onCleanup(@()app.ForceClose());
             app.SentenceLabel.Text = '';
@@ -104,9 +102,7 @@ classdef asl_app < matlab.apps.AppBase
             app.recognitionLoop();
         end
 
-        % =========================
-        % Image Aquisition Helpers
-        % =========================
+        % IMAGE AQUISITION HELPERS
         function img = getImage(app)
 
             if ~app.ImageInputSelectionToggleButton.Value
@@ -181,9 +177,7 @@ classdef asl_app < matlab.apps.AppBase
             end
         end
 
-        % =========================
         % INPUT SELECTION CALLBACKS
-        % =========================
         function LoadNetButtonClicked(app)
             [file, path] = uigetfile({'*.mat','MAT-files (*.mat)'}, 'Select a trained network');
             focus(app.UIFigure);
@@ -301,9 +295,7 @@ classdef asl_app < matlab.apps.AppBase
             app.LastImgFrameTime = tic();
         end
 
-        % =========================
         % SLIDER CALLBACKS
-        % =========================
         function ConfThreshSliderChanged(app)
             app.MinConfidence = app.ConfThreshSlider.Value / 100;
             app.ConfThreshLabel.Text = sprintf('Min Confidence: %d%%', round(app.ConfThreshSlider.Value));
@@ -324,9 +316,7 @@ classdef asl_app < matlab.apps.AppBase
             app.ConfGauge.ScaleColorLimits = [0, app.ConfThreshSlider.Value+app.GapThreshSlider.Value+0.0001; app.ConfThreshSlider.Value+app.GapThreshSlider.Value-0.0001, app.ConfThreshSlider.Value; app.ConfThreshSlider.Value-0.0001, 100];
         end
 
-        % =========================
         % TOP 5 DISPLAY HELPER
-        % =========================
         function updateTop5Display(app, scores, classNames)
             [sortedScores, sortIdx] = sort(scores, 'descend');
             top5Scores = sortedScores(1:min(5, numel(sortedScores)));
@@ -345,9 +335,7 @@ classdef asl_app < matlab.apps.AppBase
             app.Top5List.Text = '-';
         end
 
-        % =========================
         % MAIN LOOP
-        % =========================
         function recognitionLoop(app)
             while app.IsRunning && isvalid(app.UIFigure)
                 
@@ -452,9 +440,7 @@ classdef asl_app < matlab.apps.AppBase
             end
         end
 
-        % =========================
         % UI CALLBACKS
-        % =========================
         function KeyPressed(app, event)
             switch event.Key
                 case 'space'
@@ -508,9 +494,7 @@ classdef asl_app < matlab.apps.AppBase
             app.CloseApp();
         end
 
-        % =========================
         % UI RESIZE
-        % =========================
         function UIResize(app,~,~)
             pause(0.1);
             size=app.UIFigure.InnerPosition([3,4]);
@@ -526,7 +510,7 @@ classdef asl_app < matlab.apps.AppBase
             base_y = 5;
             panel_h = size(2)-10;
 
-            % === LEFT PANEL: Reference chart & Output ===
+            % LEFT PANEL
             app.ChartPanel.Position = [col1_x base_y col1_w panel_h];
             img_width = col1_w-10;
             img_height = img_width*487/630;
@@ -538,7 +522,7 @@ classdef asl_app < matlab.apps.AppBase
             app.DeleteButton.Position = [button_width+10, 5, button_width, 50];
             app.CopyButton.Position = [button_width*2+15, 5, button_width, 50];
 
-            % === MIDDLE PANEL: Camera ===
+            % MIDDLE PANEL
             app.CamPanel.Position = [col2_x, base_y, col2_w, panel_h];
             app.ImageInputSelectionToggleButton.Position = [5, panel_h-45, 100, 20];
             app.ImageInputSelectionDropdown.Position = [110, panel_h-45, col2_w-115, 20];
@@ -562,7 +546,7 @@ classdef asl_app < matlab.apps.AppBase
             colorbar(app.ImageAxes,'off');
             app.ImageAxes.InnerPosition = [5, 5, col2_w-10, panel_h-55];
 
-            % === RIGHT PANEL: Results & controls ===
+            % RIGHT PANEL
             app.ResultsPanel.Position = [col3_x, base_y, col3_w, panel_h];
             app.CurrentCharLabel.Position = [10 500 200 100];
             app.ConfGauge.Position = [8, 435, col3_w-16, 40];
@@ -580,11 +564,9 @@ classdef asl_app < matlab.apps.AppBase
     end
 
     methods (Access = public)
-        % =========================
         % CREATE COMPONENTS
-        % =========================
         function createComponents(app)
-            % === FIGURE ===
+            % FIGURE
             app.UIFigure = uifigure('Visible', 'off');
             set(0,'units','pixels');
             outputSize = [1500,900];
@@ -601,7 +583,7 @@ classdef asl_app < matlab.apps.AppBase
             app.UIFigure.KeyPressFcn = createCallbackFcn(app, @KeyPressed, true);
             app.UIFigure.SizeChangedFcn = createCallbackFcn(app, @UIResize, false);
 
-            % === LEFT PANEL: Reference chart & Output ===
+            % LEFT PANEL
             app.ChartPanel = uipanel(app.UIFigure);
             app.ChartPanel.Title = 'Reference Chart & Output';
 
@@ -638,7 +620,7 @@ classdef asl_app < matlab.apps.AppBase
             app.CopyButton.FontSize = 16;
             app.CopyButton.ButtonPushedFcn = createCallbackFcn(app, @CopyButtonPushed, false);
 
-            % === MIDDLE PANEL: Camera ===
+            % MIDDLE PANEL
             app.CamPanel = uipanel(app.UIFigure);
             app.CamPanel.Title = 'Live Input';
 
@@ -655,7 +637,7 @@ classdef asl_app < matlab.apps.AppBase
             app.ImageInputSelectionDropdown.DropDownOpeningFcn = createCallbackFcn(app, @InputChoiceDropdownUpdated, false);
             app.ImageInputSelectionDropdown.Value = 'No Cameras Found';
 
-            % === RIGHT PANEL: Results & controls ===
+            % RIGHT PANEL
             app.ResultsPanel = uipanel(app.UIFigure);
             app.ResultsPanel.Title = 'Real-Time Analysis';
 
@@ -730,9 +712,7 @@ classdef asl_app < matlab.apps.AppBase
     end
 
     methods (Access = public)
-        % =========================
         % CONSTRUCTOR
-        % =========================
         function app = asl_app
             createComponents(app);
             registerApp(app, app.UIFigure);

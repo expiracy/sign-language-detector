@@ -223,7 +223,7 @@ classdef data_video_collector < matlab.apps.AppBase
             app.letterTimestamps = {};
             app.currentLetterStartFrame = 0;
             
-            % 1. Setup Camera
+            % Setup Camera
             try
                 app.Cam = webcam;
             catch
@@ -232,7 +232,7 @@ classdef data_video_collector < matlab.apps.AppBase
                 return;
             end
             
-            % 3. Start the live preview loop
+            % Start the live preview loop
             app.recordTimer = timer('ExecutionMode', 'fixedRate', ...
                                    'Period', 1/app.FRAME_RATE, ... % 30 fps
                                    'TimerFcn', @(~,~)updateCameraAndRecord(app));
