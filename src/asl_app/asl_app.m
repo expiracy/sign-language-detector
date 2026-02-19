@@ -4,7 +4,7 @@ classdef asl_app < matlab.apps.AppBase
     properties (Access = public)
         UIFigure        matlab.ui.Figure
 
-        % Left Panel (Chart)
+        % --- Left Panel (Chart) ---
         ChartPanel      matlab.ui.container.Panel
         ChartImage      matlab.ui.control.Image
         SentenceLabel   matlab.ui.control.Label
@@ -12,13 +12,13 @@ classdef asl_app < matlab.apps.AppBase
         DeleteButton    matlab.ui.control.Button
         CopyButton      matlab.ui.control.Button
 
-        % Middle Panel (Camera & Sentence)
+        % --- Middle Panel (Camera & Sentence) ---
         CamPanel        matlab.ui.container.Panel
         ImageInputSelectionDropdown matlab.ui.control.DropDown
         ImageInputSelectionToggleButton matlab.ui.control.StateButton
         ImageAxes       matlab.ui.control.UIAxes
 
-        % Right Panel (Results & Controls)
+        % --- Right Panel (Results & Controls) ---
         ResultsPanel     matlab.ui.container.Panel
         CurrentCharLabel matlab.ui.control.Label
         ConfGauge        matlab.ui.control.LinearGauge
