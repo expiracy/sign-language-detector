@@ -234,7 +234,6 @@ classdef asl_app < matlab.apps.AppBase
                         error("Could not find an InputSize in the network layers.");
                     end
     
-                    % Reset state when loading a new network
                     app.LastLockedChar = '';
                     app.LastPredictionTime = tic;
     
@@ -575,7 +574,7 @@ classdef asl_app < matlab.apps.AppBase
                 outputSize = [1280,720];
             end
             app.UIFigure.Position = [((dispSize([3,4])-outputSize)/2), outputSize];
-            app.UIFigure.Name = 'ASL Translator';
+            app.UIFigure.Name = 'ASL Display App';
             app.UIFigure.Resize = 'on';
             app.UIFigure.AutoResizeChildren = 'off';
             app.UIFigure.Color = [0.92 0.93 0.94];
